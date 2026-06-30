@@ -1,0 +1,52 @@
+/* Pop-out problem modal, ported from web/src/ProblemModal.css. */
+.problem-modal-backdrop {
+  position: fixed; top: 0; bottom: 0; left: var(--sidebar-w, 0); right: 0;
+  background: rgba(0, 0, 0, 0.5); z-index: 1000;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 2rem 1rem; overflow-y: auto; transition: right 0.2s;
+}
+/* Keep the open batch drawer clear of the modal. */
+body.drawer-open .problem-modal-backdrop { right: var(--drawer-w); }
+.problem-modal {
+  position: relative; background: var(--bg); color: var(--text); border-radius: 8px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35); width: 100%; max-width: 1200px;
+  margin: auto; padding: 2.25rem 1.5rem 1.5rem;
+}
+.problem-modal-close {
+  position: absolute; top: 0.5rem; right: 0.5rem; width: 2rem; height: 2rem;
+  border: none; background: transparent; font-size: 1.5rem; line-height: 1;
+  cursor: pointer; color: var(--text-muted); border-radius: 4px; z-index: 1;
+}
+.problem-modal-close:hover { background: var(--bg-muted); color: var(--text); }
+
+.solution-mode-toggle { display: inline-flex; margin: 0.5rem 0; border: 1px solid var(--border-strong); border-radius: 6px; overflow: hidden; }
+.solution-mode-toggle button { background: var(--bg); border: none; padding: 0.4rem 0.95rem; cursor: pointer; font-size: 0.88rem; color: var(--text-secondary); font: inherit; }
+.solution-mode-toggle button + button { border-left: 1px solid var(--border-strong); }
+.solution-mode-toggle button:hover { background: var(--border-softer); }
+.solution-mode-toggle button.active { background: var(--accent); color: #fff; }
+.solution-modal-original { margin-top: 1rem; padding-top: 0.85rem; border-top: 1px solid var(--border-e6); }
+.solution-modal-original > summary { cursor: pointer; color: var(--text-tertiary); font-size: 0.95rem; list-style: none; }
+.solution-modal-original > summary::-webkit-details-marker { display: none; }
+.solution-modal-original > summary::before { content: '▸ '; color: var(--text-faint); }
+.solution-modal-original[open] > summary::before { content: '▾ '; }
+.solution-modal-original img { display: block; margin: 0.75rem 0 0; max-width: 100%; border: 1px solid var(--border-strong); border-radius: 4px; }
+
+.solution-modal-nav { display: flex; align-items: center; gap: 0.75rem; margin: 0.25rem 0 0.5rem; }
+.solution-modal-nav button {
+  padding: 0.35rem 0.8rem; border: 1px solid var(--border-strong); border-radius: 6px;
+  background: var(--bg); color: var(--text); cursor: pointer; font: inherit; font-size: 0.9rem;
+}
+.solution-modal-nav button:disabled { color: var(--text-dim); cursor: default; }
+
+.solution-modal-header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 0.5rem; }
+.solution-modal-header h2 { margin: 0; font-size: 1.25rem; }
+.solution-modal-counter { color: var(--text-faint); font-size: 0.95rem; }
+.solution-modal-workspace { display: flex; align-items: flex-start; gap: 1.25rem; margin: 0.5rem 0; }
+.solution-modal-board { flex: 1 1 auto; min-width: 0; max-width: 640px; margin: 0 auto; }
+.solution-modal-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem 1.25rem; margin-top: 0.5rem; color: var(--text-tertiary); font-size: 0.9rem; }
+.solution-modal-retry {
+  padding: 0.45rem 1rem; border: 1px solid var(--accent); background: var(--accent);
+  color: #fff; border-radius: 6px; text-decoration: none; font-size: 0.9rem;
+}
+.solution-modal-retry:hover { background: var(--accent-hover); }
+@media (max-width: 640px) { .solution-modal-workspace { flex-direction: column; } }

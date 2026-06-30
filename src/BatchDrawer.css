@@ -1,0 +1,38 @@
+/* Collapsible "current submission" drawer docked to the right edge. */
+.batch-toggle {
+  position: fixed; top: 50%; right: 0; transform: translateY(-50%);
+  z-index: 1101; background: var(--accent); color: #fff; border: none;
+  border-radius: 6px 0 0 6px; padding: 0.6rem 0.5rem; cursor: pointer;
+  font: inherit; font-size: 0.85rem; font-weight: 600; writing-mode: vertical-rl;
+  transition: right 0.2s;
+}
+.batch-toggle.open { right: var(--drawer-w); }
+
+.batch-drawer {
+  position: fixed; top: 0; right: 0; height: 100vh; width: var(--drawer-w);
+  background: var(--bg); border-left: 1px solid var(--border); z-index: 1100;
+  transform: translateX(100%); transition: transform 0.2s;
+  display: flex; flex-direction: column;
+}
+.batch-drawer.open { transform: translateX(0); }
+.batch-drawer-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.85rem 1rem; border-bottom: 1px solid var(--border);
+}
+.batch-drawer-head h3 { margin: 0; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-tertiary); }
+.batch-close { background: none; border: none; color: var(--text-muted); font-size: 1.3rem; line-height: 1; cursor: pointer; }
+.batch-close:hover { color: var(--text); }
+
+.batch-drawer-body { flex: 1 1 auto; overflow-y: auto; padding: 0.75rem 0.85rem; }
+
+.batch-drawer-foot { border-top: 1px solid var(--border); padding: 0.85rem 1rem; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.batch-drawer-foot select { font: inherit; padding: 0.35rem 0.4rem; flex: 1 1 auto; }
+.batch-send {
+  padding: 0.45rem 0.9rem; border: 1px solid var(--accent); background: var(--accent);
+  color: #fff; border-radius: 6px; cursor: pointer; font: inherit; font-weight: 500;
+}
+.batch-send:disabled { background: var(--border-strong); border-color: var(--border-strong); cursor: not-allowed; }
+.batch-flash { width: 100%; margin: 0; font-size: 0.85rem; color: var(--success-strong); }
+.batch-drawer .dim { color: var(--text-faint); font-size: 0.88rem; }
+
+@media (max-width: 640px) { :root { --drawer-w: 85vw; } }

@@ -1,0 +1,58 @@
+:root { --sidebar-w: 220px; --drawer-w: 320px; }
+.app-shell { display: flex; align-items: flex-start; min-height: 100vh; }
+.app-main { flex: 1 1 auto; min-width: 0; color: var(--text); transition: margin-right 0.2s; }
+body.drawer-open .app-main { margin-right: var(--drawer-w); }
+.page { max-width: 56rem; margin: 0 auto; padding: 1.5rem 1.5rem 4rem; }
+.page > h1 { font-size: 1.6rem; margin: 0 0 1.25rem; }
+.page section { margin: 1.5rem 0; }
+
+.center-screen {
+  min-height: 80vh;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 1rem; text-align: center;
+}
+
+.muted { opacity: 0.65; }
+.error { color: #c0392b; }
+.flash { color: var(--accent, #2d7); }
+
+button.primary, .primary {
+  background: var(--accent, #2563eb); color: #fff;
+  border: none; border-radius: 6px; padding: 0.45rem 0.9rem; cursor: pointer;
+}
+.link-button {
+  background: none; border: none; color: var(--accent, #2563eb);
+  cursor: pointer; padding: 0 0 0 0.5rem; text-decoration: underline;
+}
+
+.pager { display: flex; gap: 1rem; align-items: center; justify-content: center; margin: 1.25rem 0; }
+.pager button { border-radius: 6px; padding: 0.4rem 0.8rem; cursor: pointer; }
+
+.action-bar { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin: 0.75rem 0; }
+.action-bar button { border-radius: 6px; padding: 0.4rem 0.8rem; cursor: pointer; }
+
+.collection-list { list-style: none; padding: 0; }
+.collection-list li { padding: 0.5rem 0; border-bottom: 1px solid var(--border, #eee); }
+
+.problem-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.75rem;
+}
+.problem-tile {
+  display: flex; flex-direction: column; align-items: center;
+  border: 1px solid var(--border, #ddd); border-radius: 8px; padding: 0.5rem;
+  text-decoration: none; gap: 0.25rem;
+}
+.problem-tile .board { width: 100%; height: auto; }
+
+.verdict-correct { color: #1a9850; }
+.verdict-incorrect { color: #c0392b; }
+.verdict-flag { color: #e08e0b; }
+.verdict-buttons { display: flex; gap: 0.3rem; }
+.verdict-buttons button { padding: 0.2rem 0.5rem; border-radius: 4px; cursor: pointer; }
+.verdict-buttons button.active { outline: 2px solid currentColor; }
+
+.field { display: flex; flex-direction: column; gap: 0.25rem; max-width: 320px; margin: 0.75rem 0; }
+.field input, .field select { padding: 0.4rem; border-radius: 6px; border: 1px solid var(--border, #ccc); }

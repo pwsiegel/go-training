@@ -1,0 +1,28 @@
+/* Library + collection browsing, ported from web/src/SolveView.css picker. */
+
+/* Collection list (library landing) */
+.library { max-width: 56rem; margin: 0 auto; padding: 1.5rem 1.5rem 4rem; color: var(--text); }
+.library h1 { font-size: 1.6rem; margin: 0 0 1.25rem; }
+.library-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.6rem; }
+.library-row {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 1rem;
+  padding: 0.85rem 1.1rem; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg); text-decoration: none; color: inherit;
+}
+.library-row:hover { background: var(--bg-subtle); }
+.library-row-name { font-size: 1.05rem; font-weight: 600; }
+.library-row-count { color: var(--text-faint); font-size: 0.9rem; }
+
+/* Problem grid (one collection) */
+.picker { max-width: 64rem; margin: 0 auto; padding: 1.25rem 1.5rem 3rem; color: var(--text); }
+.picker-header { margin-bottom: 1.25rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); }
+.picker-header h1 { font-size: 1.4rem; margin: 0.15rem 0; }
+.picker-meta { font-size: 0.9rem; color: var(--text-muted); }
+
+.picker-pager { display: flex; gap: 1rem; align-items: center; justify-content: center; margin: 1.5rem 0 0; }
+.picker-pager button {
+  padding: 0.4rem 0.85rem; border: 1px solid var(--border-strong); border-radius: 6px;
+  background: var(--bg); color: var(--text); cursor: pointer; font-size: 0.9rem;
+}
+.picker-pager button:disabled { color: var(--text-dim); cursor: default; }
+.picker-pager-num { font-size: 0.9rem; color: var(--text-muted); }

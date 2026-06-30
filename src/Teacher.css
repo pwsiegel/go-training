@@ -1,0 +1,59 @@
+/* Teacher review UI, ported from web/src/TeacherView.css. */
+.teacher { max-width: 56rem; margin: 0 auto; padding: 1.25rem 1.5rem 3rem; color: var(--text); }
+.teacher-header {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem;
+  margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border);
+}
+.teacher-header h1 { margin: 0; font-size: 1.4rem; }
+.teacher-meta { margin-top: 0.15rem; font-size: 0.9rem; color: var(--text-muted); }
+.teacher .back-link {
+  display: inline-block; color: var(--text-faint); text-decoration: none;
+  font-size: 0.85rem; margin-bottom: 0.25rem;
+}
+.teacher .back-link:hover { color: var(--text); text-decoration: underline; }
+.teacher-empty { color: var(--text-muted); text-align: center; margin-top: 4rem; font-size: 1.05rem; }
+.teacher-empty-sub { color: var(--text-faint); margin: 0.25rem 0 0; }
+
+/* student list */
+.teacher-students { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.6rem; }
+.teacher-student-row {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 1rem;
+  padding: 0.85rem 1.1rem; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg); text-decoration: none; color: inherit;
+}
+.teacher-student-row:hover { background: var(--bg-subtle); }
+.teacher-student-name { font-size: 1.05rem; font-weight: 600; }
+.teacher-student-meta { color: var(--text-faint); font-size: 0.9rem; }
+
+.teacher-section-title {
+  margin: 2rem 0 0.75rem; font-size: 0.85rem; color: var(--text-tertiary);
+  font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
+}
+
+/* student filter chips */
+.teacher-filter { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1.25rem; }
+.teacher-filter-chip {
+  padding: 0.35rem 0.8rem; border: 1px solid var(--border-strong); border-radius: 999px;
+  background: var(--bg); color: var(--text-secondary); text-decoration: none; font-size: 0.85rem; cursor: pointer;
+}
+.teacher-filter-chip:hover { background: var(--border-softer); }
+.teacher-filter-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* one submission */
+.teacher-batch-student { font-weight: 600; color: var(--text); margin-right: 0.5rem; }
+.teacher-batch { margin: 1.75rem 0; }
+.teacher-batch-header {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem;
+  margin: 0 0 0.75rem; padding-bottom: 0.35rem; border-bottom: 1px solid var(--border-soft);
+  font-size: 1rem; font-weight: 500; color: var(--text-secondary);
+}
+.teacher-batch-count { font-size: 0.85rem; color: var(--text-faint); font-weight: 400; }
+.teacher-batch-actions { display: inline-flex; align-items: center; gap: 0.75rem; }
+.teacher-send-btn {
+  padding: 0.4rem 0.9rem; border: 1px solid var(--accent); background: var(--accent);
+  color: #fff; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font: inherit; font-weight: 500;
+}
+.teacher-send-btn:hover:not(:disabled) { background: var(--accent-hover); }
+.teacher-send-btn:disabled { background: var(--border-strong); border-color: var(--border-strong); cursor: default; }
+
+/* Review tile grid is shared — see Review.css. */

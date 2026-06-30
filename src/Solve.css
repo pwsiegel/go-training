@@ -1,0 +1,70 @@
+/* Solver layout, ported from the original app (web/src/SolveView.css). */
+.solve { max-width: 56rem; margin: 0 auto; padding: 1.25rem 1.5rem 3rem; color: var(--text); }
+
+.solve-header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 0.25rem; }
+.solve-header h1 { margin: 0; font-size: 1.4rem; }
+.solve-counter { color: var(--text-faint); font-weight: normal; font-size: 1rem; }
+
+.solve-verdict-banner {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  margin: 0.5rem 0; padding: 0.4rem 0.7rem; border-radius: 6px;
+  font-size: 0.95rem; font-weight: 500;
+}
+.solve-verdict-banner.v-correct { background: var(--success-bg); color: var(--success-strong); }
+.solve-verdict-banner.v-incorrect { background: var(--error-bg); color: var(--error-strong); }
+.solve-verdict-banner.v-flag { background: var(--warning-bg); color: var(--warning-strong); }
+.solve-verdict-mark { font-size: 1.1rem; font-weight: 700; }
+
+.solve-mode-toggle { display: inline-flex; margin: 0.5rem 0; border: 1px solid var(--border-strong); border-radius: 6px; overflow: hidden; }
+.solve-mode-toggle button { background: var(--bg); border: none; padding: 0.4rem 0.95rem; cursor: pointer; font-size: 0.88rem; color: var(--text-secondary); font: inherit; }
+.solve-mode-toggle button + button { border-left: 1px solid var(--border-strong); }
+.solve-mode-toggle button:hover { background: var(--border-softer); }
+.solve-mode-toggle button.active { background: var(--accent); color: #fff; }
+
+.solve-workspace { display: flex; align-items: flex-start; gap: 1.25rem; margin: 0.75rem auto 1rem; }
+.solve-board { flex: 1 1 auto; min-width: 0; max-width: 640px; }
+@media (max-width: 720px) {
+  .solve-workspace { flex-direction: column; }
+  .solve-board { margin: 0 auto; }
+}
+
+.solve-chains {
+  flex: 0 0 12rem; background: var(--warning-bg-soft); border: 1px solid var(--warning-line2);
+  border-radius: 8px; padding: 0.75rem 0.9rem; color: var(--warning-x);
+}
+.solve-chains-title {
+  font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--warning-mid2); margin-bottom: 0.5rem;
+}
+.solve-chains-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.solve-chains-list .chain { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; font-size: 1rem; }
+.chain-num {
+  display: inline-block; min-width: 1.6rem; padding: 0.1rem 0.4rem; text-align: center;
+  background: var(--bg); border: 1px solid var(--warning-line); border-radius: 4px;
+  font-variant-numeric: tabular-nums; font-weight: 600; color: var(--warning-x);
+}
+.chain-sep { color: var(--warning-soft); font-weight: 600; }
+
+.solve-info { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem 1.25rem; margin: 0.75rem 0; color: var(--text-tertiary); font-size: 0.95rem; }
+.solve-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.solve-actions button {
+  padding: 0.5rem 1rem; border: 1px solid var(--border-strong); border-radius: 6px;
+  background: var(--bg); color: var(--text); cursor: pointer; font-size: 0.95rem;
+}
+.solve-actions button:hover:not(:disabled) { background: var(--border-softer); }
+.solve-actions button:disabled { color: var(--text-dim); cursor: default; }
+.solve-actions .solve-save-continue { background: var(--indigo); color: var(--bg); border-color: var(--indigo-strong); }
+.solve-actions .solve-save-continue:hover:not(:disabled) { background: var(--indigo-strong); }
+.solve-actions .solve-save-continue:disabled { background: var(--indigo-soft); border-color: var(--indigo-soft); color: var(--bg); }
+
+.solve-error { background: var(--error-bg); color: var(--error-strong); padding: 0.6rem 0.8rem; border-radius: 6px; margin-top: 0.5rem; }
+.solve-flash { background: var(--success-bg); color: var(--success-strong); padding: 0.6rem 0.8rem; border-radius: 6px; margin-top: 0.5rem; }
+
+.solve-history, .solve-original { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-e6); }
+.solve-history > summary, .solve-original > summary { cursor: pointer; color: var(--text-tertiary); font-size: 0.95rem; list-style: none; }
+.solve-history > summary::-webkit-details-marker, .solve-original > summary::-webkit-details-marker { display: none; }
+.solve-history > summary::before, .solve-original > summary::before { content: '▸ '; color: var(--text-faint); }
+.solve-history[open] > summary::before, .solve-original[open] > summary::before { content: '▾ '; }
+.solve-history > summary:hover, .solve-original > summary:hover { color: var(--text); }
+
+.solve-original img { display: block; margin: 0.75rem 0 0; max-width: 100%; border: 1px solid var(--border-strong); border-radius: 4px; }

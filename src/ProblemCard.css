@@ -1,0 +1,90 @@
+/* Shared problem card — board thumbnail + collection/number + optional verdict
+ * (colored border + bar) + optional "retried". Pure display; interactions are
+ * composed externally. Card size is controlled by the parent grid. */
+
+.problem-card-grid {
+  list-style: none; padding: 0; margin: 0;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.75rem;
+}
+/* Larger cells — used where move numbers need to be legible (attempt history). */
+.problem-card-grid.lg { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem; }
+/* Smaller cells — used in the narrow "current submission" drawer. */
+.problem-card-grid.sm { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 0.5rem; }
+
+.problem-card {
+  border: 2px solid var(--border); border-radius: 6px; background: var(--bg);
+  overflow: hidden; display: flex; flex-direction: column;
+}
+.problem-card.v-correct { border-color: var(--success); }
+.problem-card.v-incorrect { border-color: var(--error); }
+.problem-card.v-flag { border-color: var(--warning); }
+.problem-card.v-pending { border-color: var(--border-strong); }
+.problem-card.dirty { box-shadow: 0 0 0 2px var(--accent-bg-stronger); }
+
+.problem-card-board {
+  background: var(--bg-board); padding: 0.4rem; aspect-ratio: 1 / 1; width: 100%;
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.problem-card-board > svg { max-width: 100%; max-height: 100%; }
+
+.problem-card-collection {
+  padding: 0.35rem 0.55rem; font-size: 0.78rem; font-weight: 500; color: var(--text-secondary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  border-bottom: 1px solid var(--border-soft);
+}
+.problem-card-footer {
+  padding: 0.35rem 0.55rem; font-size: 0.78rem; display: flex; gap: 0.5rem; align-items: baseline;
+  color: var(--text-faint);
+}
+.problem-card-num { color: var(--text-faint); }
+.problem-card-retried { color: var(--text-faint); }
+
+.problem-card-bar {
+  display: flex; align-items: center; justify-content: center; gap: 0.4rem;
+  padding: 0.4rem 0; font-size: 0.95rem; font-weight: 600; border-top: 1px solid var(--border-soft);
+}
+.problem-card-bar.v-correct { color: var(--success-strong); background: var(--success-bg); }
+.problem-card-bar.v-incorrect { color: var(--error-strong); background: var(--error-bg); }
+.problem-card-bar.v-flag { color: var(--warning-strong); background: var(--warning-bg); }
+.problem-card-bar.v-pending { color: var(--text-faint); }
+
+/* ---- external composition helpers ---- */
+
+/* Clickable: wrap the card in <Link className="problem-card-link">. */
+.problem-card-link { display: block; text-decoration: none; color: inherit; }
+.problem-card-link:hover .problem-card-board { background: var(--warning-bg-soft); }
+
+/* Remove ×: a relatively-positioned cell + an overlaid button. */
+.problem-card-cell { position: relative; }
+.problem-card-remove {
+  position: absolute; top: 0.3rem; right: 0.3rem; z-index: 1;
+  width: 1.5rem; height: 1.5rem; padding: 0; border: 1px solid var(--border);
+  border-radius: 50%; background: var(--bg); color: var(--text-fainter);
+  font-size: 1rem; line-height: 1; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.problem-card-remove:hover {
+  color: var(--error-c33); background: var(--error-bg-soft); border-color: var(--error-border);
+}
+
+/* Clickable card (e.g. the teacher tile opens the review modal). */
+.problem-card-clickable {
+  display: block; width: 100%; padding: 0; border: none; background: none;
+  cursor: pointer; font: inherit; text-align: left;
+}
+.problem-card-clickable:disabled { cursor: default; }
+.problem-card-clickable:hover:not(:disabled) .problem-card-board { background: var(--warning-bg-soft); }
+
+/* Teacher grading buttons attached beneath a card (bar={false}). */
+.problem-card-grading { display: flex; gap: 0.3rem; margin-top: 0.35rem; }
+.problem-card-grading .mini-verdict {
+  flex: 1; padding: 0.45rem 0; border: 1px solid var(--border); border-radius: 4px;
+  background: var(--bg); cursor: pointer; font-size: 1.05rem; font-weight: 600;
+}
+.problem-card-grading .mini-verdict.correct { color: var(--success); }
+.problem-card-grading .mini-verdict.incorrect { color: var(--error); }
+.problem-card-grading .mini-verdict.flag { color: var(--warning-strong); }
+.problem-card-grading .mini-verdict:hover { background: var(--border-softer); }
+.problem-card-grading .mini-verdict.correct.selected { background: var(--success); color: #fff; }
+.problem-card-grading .mini-verdict.incorrect.selected { background: var(--error); color: #fff; }
+.problem-card-grading .mini-verdict.flag.selected { background: var(--warning); color: #fff; }

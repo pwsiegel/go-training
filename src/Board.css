@@ -1,0 +1,114 @@
+/* Board renders with fixed colors regardless of theme — wood + black/white
+ * stones are universal Go conventions; flipping them in dark mode would
+ * just be confusing. Hex literals (rather than theme vars) are used
+ * deliberately so adding a dark-theme override later is an explicit
+ * choice, not an accidental side-effect of editing theme.css. */
+.board {
+  width: 100%;
+  max-width: 720px;
+  height: auto;
+  display: block;
+  background: transparent;
+}
+
+.board-bg {
+  fill: #e6b871;
+}
+
+.grid-line {
+  stroke: #2b1d10;
+  stroke-width: 1;
+}
+
+.star-point {
+  fill: #2b1d10;
+}
+
+.coord-label text {
+  fill: #5a452b;
+  font-family: ui-monospace, monospace;
+  pointer-events: none;
+  user-select: none;
+}
+
+.stone-black {
+  fill: #222222;
+  stroke: #222222;
+  stroke-width: 0.5;
+  pointer-events: none;  /* let clicks pass through to the hit rect below */
+}
+
+.stone-white {
+  fill: #fafafa;
+  stroke: #222222;
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.label-on-black {
+  fill: #ffffff;
+  font-family: system-ui, sans-serif;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.label-on-white {
+  fill: #222222;
+  font-family: system-ui, sans-serif;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+/* Numbered-move overlay (no stone underneath): a board-colored disc
+ * masks the grid line crossing under the number, with the same dark
+ * text used elsewhere on board. */
+.move-number-halo {
+  fill: #e6b871;
+  pointer-events: none;
+}
+
+.move-number-empty {
+  fill: #2b1d10;
+  font-family: system-ui, sans-serif;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+/* Mark overlays (triangle, square) — stroke colors chosen so the mark
+ * stays visible against black stones, white stones, and the wood. */
+.mark-on-black {
+  stroke: #ffffff;
+  pointer-events: none;
+}
+
+.mark-on-white {
+  stroke: #222222;
+  pointer-events: none;
+}
+
+.mark-on-empty {
+  stroke: #2b1d10;
+  pointer-events: none;
+}
+
+.hit {
+  fill: transparent;
+  cursor: pointer;
+}
+
+.hit:hover {
+  fill: rgba(0, 0, 0, 0.08);
+}
+
+.board.display-only { cursor: inherit; }
+.board.display-only .hit,
+.board.display-only .hit.occupied { cursor: inherit; }
+.board.display-only .hit:hover { fill: transparent; }
+
+.hit.occupied {
+  cursor: default;
+}
+
+.hit.occupied:hover {
+  fill: transparent;
+}
