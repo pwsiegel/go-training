@@ -14,7 +14,7 @@ npm run build
 npm run lint
 ```
 
-KataGo-powered "explore" analysis is gated by `VITE_KATAGO` and only works when the private backend is running locally (the dev server proxies `/api/katago` to it). Production builds ship without it.
+The KataGo-powered features — "explore" analysis hints, and **Play** (a full game against a human-like KataGo at a chosen rank) with a **Review** page for saved games — are gated by `VITE_KATAGO` and only work when the private backend is running locally (the dev server proxies `/api/katago` to it). Production builds ship without them. Enable with `make app-katago` from the private repo (or `VITE_KATAGO=1 npm run dev`), alongside `make api-katago`.
 
 ## Deploy
 

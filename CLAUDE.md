@@ -5,7 +5,7 @@ This repo is the **public, user-facing static app** (React / Vite / TypeScript) 
 ## Context
 - Static SPA, deployed to GitHub Pages; it has no server of its own.
 - Firebase (Storage + Firestore) is the source of truth for the problem library and all student/teacher data.
-- KataGo "explore" analysis is gated by `VITE_KATAGO` and only reachable when the private backend runs locally (vite proxies `/api/katago`). Production ships without it.
+- KataGo features (explore-mode hints, and Play + Review of games vs a human-like KataGo) are gated by `VITE_KATAGO` and only reachable when the private backend runs locally (vite proxies `/api/katago`). Production ships without them.
 - The dev server is pinned to port 5173 (`strictPort`) — :5174 breaks Firebase Storage CORS.
 - The user-facing surface (solving, reviewing) may have many users; weigh polish/accessibility/robustness accordingly.
 
