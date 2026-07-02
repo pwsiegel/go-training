@@ -1,0 +1,84 @@
+.review {
+  max-width: 56rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.5rem 4rem;
+}
+
+.review-empty {
+  color: var(--text-muted);
+}
+
+.review-group {
+  margin-bottom: 1.5rem;
+}
+
+.review-group h2 {
+  font-size: 1rem;
+  margin: 0 0 0.5rem;
+}
+
+.review-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.review-table th {
+  text-align: left;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 0.4rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.review-table td {
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.review-table tr:last-child td {
+  border-bottom: none;
+}
+
+.review-table th.num,
+.review-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.review-row {
+  cursor: pointer;
+}
+
+.review-row:hover {
+  background: var(--bg-muted);
+}
+
+.review-rank {
+  color: var(--text-muted);
+}
+
+.review-muted {
+  color: var(--text-muted);
+}
+
+.review-del-cell {
+  width: 1.5rem;
+  text-align: center;
+}
+
+.review-del {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.2rem;
+}
+
+.review-del:hover {
+  color: var(--error);
+}

@@ -155,3 +155,20 @@ export function playMove(
     koPoint: nextKo,
   };
 }
+
+/** Replay a sequence of coloured moves from an empty board, applying captures
+ * and simple ko. Stops early on the first illegal move. Returns the resulting
+ * stones and the live ko point. */
+export function replay(
+  moves: { color: Color; x: number; y: number }[],
+): { stones: Stone[]; koPoint: { x: number; y: number } | null } {
+  let stones: Stone[] = [];
+  let koPoint: { x: number; y: number } | null = null;
+  for (const m of moves) {
+    const r = playMove(stones, m.color, m.x, m.y, koPoint);
+    if (!r.ok) break;
+    stones = r.stones;
+    koPoint = r.koPoint;
+  }
+  return { stones, koPoint };
+}

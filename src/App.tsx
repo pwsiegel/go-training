@@ -18,6 +18,10 @@ import { SubmissionDetail } from './views/SubmissionDetail';
 import { History } from './views/History';
 import { Teacher } from './views/Teacher';
 import { Profile } from './views/Profile';
+import { Play } from './views/Play';
+import { Review } from './views/Review';
+import { GameReview } from './views/GameReview';
+import { KATAGO_ENABLED } from './data/katago';
 
 function navClass({ isActive }: { isActive: boolean }) {
   return isActive ? 'sidebar-link active' : 'sidebar-link';
@@ -53,6 +57,8 @@ function Sidebar() {
             <NavLink to="/library" className={navClass}>Library</NavLink>
             <NavLink to="/submissions" end className={navClass}>Submissions</NavLink>
             <NavLink to="/history" className={navClass}>History</NavLink>
+            {KATAGO_ENABLED && <NavLink to="/play" className={navClass}>Play</NavLink>}
+            {KATAGO_ENABLED && <NavLink to="/review" className={navClass}>Review</NavLink>}
           </>
         )}
         <NavLink to="/profile" className={navClass}>Profile</NavLink>
@@ -102,6 +108,9 @@ export default function App() {
             <Route path="/submissions" element={<Submissions />} />
             <Route path="/submissions/:id" element={<SubmissionDetail />} />
             <Route path="/history" element={<History />} />
+            {KATAGO_ENABLED && <Route path="/play" element={<Play />} />}
+            {KATAGO_ENABLED && <Route path="/review" element={<Review />} />}
+            {KATAGO_ENABLED && <Route path="/review/:id" element={<GameReview />} />}
             <Route path="/teacher" element={<Teacher />} />
             <Route path="/teacher/:studentUid" element={<Teacher />} />
             <Route path="/profile" element={<Profile />} />

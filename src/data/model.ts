@@ -1,6 +1,8 @@
 // Shared types for the static library and the Firestore documents. The
 // Firestore shapes mirror docs/migration-spec.md.
 
+import type { Color } from '../types';
+
 export type Verdict = 'correct' | 'incorrect' | 'flag';
 
 // ---------- static library (Firebase Storage) ----------
@@ -72,4 +74,28 @@ export type LinkDoc = {
   studentUid: string;
   teacherUid: string;
   createdAt: number;
+};
+
+// ---------- play vs KataGo (games / review) ----------
+
+/** Grouping key on the review page — the site/app a game was played on. This
+ * app ("Go Training") is the first source; other sites can be added later. */
+export type GameSource = 'go-training';
+
+export type GameMove = { color: Color; x: number; y: number };
+
+/** `games/{gameId}` — a saved game to review. Local-dev feature (play vs KataGo). */
+export type GameDoc = {
+  id: string;
+  ownerUid: string;
+  source: GameSource;
+  createdAt: number;
+  myColor: Color;
+  rank: string;          // humanSLProfile, e.g. "rank_9k"
+  rankLabel: string;     // "9 kyu"
+  temperature: number;
+  sgf: string;           // the game as SGF (players, ranks, moves)
+  scoreAt: Record<string, number>;   // moveCount -> lead (Black's perspective)
+  moveCount: number;
+  finalScore: number | null;         // last recorded estimate
 };

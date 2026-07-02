@@ -1,0 +1,125 @@
+.play-page {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.5rem 4rem;
+}
+
+.play-setup {
+  max-width: 26rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.play-setup h1 {
+  margin: 0;
+}
+
+.play-setup-sub {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+.play-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.95rem;
+}
+
+.play-field > span {
+  font-weight: 600;
+}
+
+.play-field > span small {
+  font-weight: 400;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.play-field select,
+.play-field input[type='range'] {
+  font-family: inherit;
+  font-size: 0.95rem;
+}
+
+.play-field select {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-subtle);
+  color: var(--text);
+}
+
+.play-hint {
+  color: var(--text-muted);
+}
+
+.play-seg {
+  display: flex;
+  gap: 0;
+}
+
+.play-seg button {
+  flex: 1;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.95rem;
+}
+
+.play-seg button:not(:first-child) {
+  border-left: none;
+}
+
+.play-seg button:first-child { border-radius: 4px 0 0 4px; }
+.play-seg button:last-child { border-radius: 0 4px 4px 0; }
+
+.play-seg button:hover { background: var(--bg-muted); }
+
+.play-seg button.active {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+
+.play-start {
+  align-self: flex-start;
+  padding: 0.55rem 1.2rem;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #ffffff;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 1rem;
+}
+
+.play-start:hover { opacity: 0.92; }
+
+.play-movecount {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.play-ended-note {
+  margin: 0 0 0.2rem;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.play-tool-primary {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+
+.play-tool-primary:hover:not(:disabled) {
+  background: var(--accent);
+  opacity: 0.92;
+}

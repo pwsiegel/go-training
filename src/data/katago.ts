@@ -57,3 +57,43 @@ export async function analyze(p: AnalyzeParams): Promise<Analysis> {
   if (!res.ok) throw new Error(`KataGo analyze failed: ${res.status}`);
   return res.json();
 }
+
+// --- play vs KataGo (human-net move generation) ---
+
+export type GenmoveResult = {
+  move: { x: number; y: number } | null;   // null = pass (opponent never passes in play)
+  is_pass: boolean;
+  move_prob: number;                        // human-policy probability of the chosen move
+  root: { winrate: number; score_lead: number; visits: number; current_player: Color };
+};
+
+export type GenmoveParams = {
+  initialStones: Stone[];
+  moves: { color: Color; x: number; y: number }[];   // full history; the side to move is the opponent
+  initialPlayer: Color;
+  rank: string;              // humanSLProfile, e.g. "rank_9k"
+  temperature?: number;      // 1.0 = faithful rank imitation; <1 sharpens (stronger)
+  maxVisits?: number;        // strong-net visits — score readout accuracy only
+  signal?: AbortSignal;
+};
+
+/** Ask KataGo's human net for one move at the given rank. Sampled from the
+ * human policy, so it plays like a human of that rank (mistakes and all). */
+export async function genmove(p: GenmoveParams): Promise<GenmoveResult> {
+  const res = await fetch(`${API_BASE}/api/katago/genmove`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      initial_stones: p.initialStones.map((s) => ({ x: s.x, y: s.y, color: s.color })),
+      moves: p.moves.map((m) => ({ color: m.color, x: m.x, y: m.y })),
+      initial_player: p.initialPlayer,
+      board_size: 19,
+      rank: p.rank,
+      temperature: p.temperature ?? 1.0,
+      max_visits: p.maxVisits ?? 100,
+    }),
+    signal: p.signal,
+  });
+  if (!res.ok) throw new Error(`KataGo genmove failed: ${res.status}`);
+  return res.json();
+}
