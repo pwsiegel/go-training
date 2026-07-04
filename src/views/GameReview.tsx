@@ -45,7 +45,7 @@ export function GameReview() {
 
   const points = useMemo<Point[]>(() => {
     if (!game) return [];
-    return Object.entries(game.scoreAt)
+    return Object.entries(game.scoreAt ?? {})
       .map(([k, v]) => ({ move: Number(k), lead: v }))
       .sort((a, b) => a.move - b.move);
   }, [game]);
@@ -92,12 +92,18 @@ export function GameReview() {
           {info.playerWhite} <span className="gr-rank">[{info.rankWhite}]</span>
         </h1>
         <p className="gr-meta">
-          {when} · you played {game.myColor === 'B' ? 'Black' : 'White'} · {total} moves
-          {game.finalScore !== null && <> · final estimate <strong>{scoreLabel(game.finalScore)}</strong></>}
+          {when}
+          {game.myColor && <> · you played {game.myColor === 'B' ? 'Black' : 'White'}</>}
+          {' · '}{total} moves
+          {game.finalScore != null
+            ? <> · final estimate <strong>{scoreLabel(game.finalScore)}</strong></>
+            : info.result && <> · <strong>{info.result}</strong></>}
         </p>
       </div>
 
-      <GameScoreGraph points={points} total={total} cursor={cursor} onSeek={seek} />
+      {points.length > 0 && (
+        <GameScoreGraph points={points} total={total} cursor={cursor} onSeek={seek} />
+      )}
 
       <div className="gr-main">
         <div className="gr-board">
@@ -122,7 +128,7 @@ export function GameReview() {
                 <span className="mv-num">{i + 1}</span>
                 <span className={`mv-color mv-${m.color}`} aria-hidden />
                 <span className="mv-coord">{coordLabel(m.x, m.y)}</span>
-                {game.scoreAt[String(i + 1)] !== undefined && (
+                {game.scoreAt?.[String(i + 1)] !== undefined && (
                   <span className="mv-score">{scoreLabel(game.scoreAt[String(i + 1)])}</span>
                 )}
               </button>

@@ -14,7 +14,12 @@ npm run build
 npm run lint
 ```
 
-The KataGo-powered features — "explore" analysis hints, and **Play** (a full game against a human-like KataGo at a chosen rank) with a **Review** page for saved games — are gated by `VITE_KATAGO` and only work when the private backend is running locally (the dev server proxies `/api/katago` to it). Production builds ship without them. Enable with `make app-katago` from the private repo (or `VITE_KATAGO=1 npm run dev`), alongside `make api-katago`.
+The **Review** page (browse + replay saved games) is always available. Its games come from two sources:
+
+- **Fox** — imported from [Fox Weiqi](https://www.foxwq.com/) by a local-only sync (the Fox API sends no CORS headers, so it can't run in the deployed app). Synced games persist to Firestore and are reviewable here on GitHub Pages.
+- **Local KataGo** — games played on the **Play** page (a full game against a human-like KataGo at a chosen rank). These, along with the "explore" analysis hints, are gated by `VITE_KATAGO` and only work with the private backend running locally.
+
+Enable the gated features with `make app-katago` from the private repo (or `VITE_KATAGO=1 npm run dev`), alongside `make api-fox` (KataGo + Fox sync) or `make api-katago`. The dev server proxies `/api/katago` and `/api/fox` to the backend; production builds ship without the gated features.
 
 ## Deploy
 

@@ -24,6 +24,12 @@ export default defineConfig({
         target: process.env.VITE_KATAGO_TARGET ?? 'http://localhost:8001',
         changeOrigin: true,
       },
+      // Fox game sync — also backend-only (the Fox API sends no CORS headers),
+      // so it can't run in the deployed app. Dev-proxied like KataGo.
+      '/api/fox': {
+        target: process.env.VITE_KATAGO_TARGET ?? 'http://localhost:8001',
+        changeOrigin: true,
+      },
     },
   },
   build: {

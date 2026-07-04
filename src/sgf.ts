@@ -42,9 +42,11 @@ export type SgfInfo = {
   rankBlack: string;
   rankWhite: string;
   date: string;
+  result: string;       // RE[] value, e.g. "W+0.25" (empty when absent)
 };
 
-/** Player names + ranks + date from an SGF root (empty strings when absent). */
+/** Player names + ranks + date + result from an SGF root (empty strings when
+ * absent). */
 export function sgfInfo(sgf: string): SgfInfo {
   const prop = (key: string) => sgf.match(new RegExp(`\\b${key}\\[([^\\]]*)\\]`))?.[1] ?? '';
   return {
@@ -53,6 +55,7 @@ export function sgfInfo(sgf: string): SgfInfo {
     rankBlack: prop('BR'),
     rankWhite: prop('WR'),
     date: prop('DT'),
+    result: prop('RE'),
   };
 }
 

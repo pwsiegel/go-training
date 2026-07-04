@@ -8,6 +8,59 @@
   color: var(--text-muted);
 }
 
+.review-sync {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.review-add {
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.review-sync button {
+  padding: 0.35rem 0.7rem;
+}
+
+.review-status {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.review-error {
+  color: var(--error);
+  font-size: 0.85rem;
+}
+
+.review-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.review-chip {
+  padding: 0.25rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.review-chip.active {
+  background: var(--accent, var(--text));
+  border-color: var(--accent, var(--text));
+  color: var(--bg);
+}
+
 .review-group {
   margin-bottom: 1.5rem;
 }
