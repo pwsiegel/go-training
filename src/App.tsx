@@ -58,7 +58,7 @@ function Sidebar() {
             <NavLink to="/submissions" end className={navClass}>Submissions</NavLink>
             <NavLink to="/history" className={navClass}>History</NavLink>
             {KATAGO_ENABLED && <NavLink to="/play" className={navClass}>Play</NavLink>}
-            {KATAGO_ENABLED && <NavLink to="/review" className={navClass}>Review</NavLink>}
+            <NavLink to="/review" className={navClass}>Review</NavLink>
           </>
         )}
         <NavLink to="/profile" className={navClass}>Profile</NavLink>
@@ -109,8 +109,8 @@ export default function App() {
             <Route path="/submissions/:id" element={<SubmissionDetail />} />
             <Route path="/history" element={<History />} />
             {KATAGO_ENABLED && <Route path="/play" element={<Play />} />}
-            {KATAGO_ENABLED && <Route path="/review" element={<Review />} />}
-            {KATAGO_ENABLED && <Route path="/review/:id" element={<GameReview />} />}
+            <Route path="/review" element={<Review />} />
+            <Route path="/review/:id" element={<GameReview />} />
             <Route path="/teacher" element={<Teacher />} />
             <Route path="/teacher/:studentUid" element={<Teacher />} />
             <Route path="/profile" element={<Profile />} />

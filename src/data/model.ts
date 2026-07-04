@@ -76,26 +76,41 @@ export type LinkDoc = {
   createdAt: number;
 };
 
-// ---------- play vs KataGo (games / review) ----------
+// ---------- games / review ----------
 
-/** Grouping key on the review page — the site/app a game was played on. This
- * app ("Go Training") is the first source; other sites can be added later. */
-export type GameSource = 'go-training';
+/** Where a game came from. Locally-played KataGo games are `go-training`;
+ * games imported from Fox Weiqi are `fox`. Other sites can be added later. */
+export type GameSource = 'go-training' | 'fox';
 
 export type GameMove = { color: Color; x: number; y: number };
 
-/** `games/{gameId}` — a saved game to review. Local-dev feature (play vs KataGo). */
+/** `games/{gameId}` — a game to review. Either a locally-played KataGo game
+ * (the play-vs-KataGo fields) or one imported from an external server (the
+ * import fields). The SGF is the source of truth for players, result, moves. */
 export type GameDoc = {
   id: string;
   ownerUid: string;
   source: GameSource;
   createdAt: number;
-  myColor: Color;
-  rank: string;          // humanSLProfile, e.g. "rank_9k"
-  rankLabel: string;     // "9 kyu"
-  temperature: number;
-  sgf: string;           // the game as SGF (players, ranks, moves)
-  scoreAt: Record<string, number>;   // moveCount -> lead (Black's perspective)
-  moveCount: number;
-  finalScore: number | null;         // last recorded estimate
+  sgf: string;
+  // play vs KataGo only — absent on imported games
+  myColor?: Color;
+  rank?: string;                      // humanSLProfile, e.g. "rank_9k"
+  rankLabel?: string;                 // "9 kyu"
+  temperature?: number;
+  scoreAt?: Record<string, number>;   // moveCount -> lead (Black's perspective)
+  moveCount?: number;
+  finalScore?: number | null;         // last recorded estimate
+  // imported (Fox) only — participant uids, for the account filter
+  blackUid?: number;
+  whiteUid?: number;
+};
+
+/** `users/{uid}/foxAccounts/{accountUid}` — a tracked Fox player and its
+ * incremental-sync cursor. The Fox account uid is the document id. */
+export type FoxAccountDoc = {
+  uid: number;
+  username: string;
+  lastChessId: string;   // newest synced game; sync pulls only games newer than this
+  lastSyncedAt: number;  // ms epoch of the last successful sync
 };
