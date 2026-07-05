@@ -5,6 +5,8 @@ import { replay } from '../goRules';
 import { movesFromSgf, sgfInfo } from '../sgf';
 import { getGame } from '../data/games';
 import type { GameDoc } from '../data/model';
+import type { Color } from '../types';
+import { analyzePosition, type WebAnalysis } from '../katago/webEngine';
 import { Spinner } from '../Spinner';
 import './GameReview.css';
 
@@ -27,6 +29,9 @@ export function GameReview() {
   const { id } = useParams<{ id: string }>();
   const [loaded, setLoaded] = useState<{ id: string; game: GameDoc | null } | null>(null);
   const [cursor, setCursor] = useState(0);
+  const [analyzeOn, setAnalyzeOn] = useState(false);
+  const [analysis, setAnalysis] = useState<{ cursor: number; data: WebAnalysis } | null>(null);
+  const [analysisErr, setAnalysisErr] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -64,6 +69,35 @@ export function GameReview() {
     return () => window.removeEventListener('keydown', onKey);
   }, [total]);
 
+  // In-browser KataGo analysis of the current position (opt-in). Scrubbing to a
+  // new position cancels the stale search (shared 'interactive' engine group).
+  useEffect(() => {
+    if (!analyzeOn || !game) return;
+    let active = true;
+    const forCursor = cursor;
+    const toPlay: Color =
+      cursor < moves.length ? moves[cursor].color
+        : cursor > 0 ? (moves[cursor - 1].color === 'B' ? 'W' : 'B')
+          : 'B';
+    analyzePosition({
+      stones: shown.stones,
+      moves: moves.slice(0, cursor),
+      toPlay,
+      positionId: `${id}:${cursor}`,
+      visits: 50,
+    })
+      .then((res) => {
+        if (!active || res === null) return;
+        setAnalysis({ cursor: forCursor, data: res });
+        setAnalysisErr('');
+      })
+      .catch((e) => {
+        if (!active) return;
+        setAnalysisErr(e instanceof Error ? e.message : 'analysis failed');
+      });
+    return () => { active = false; };
+  }, [analyzeOn, game, id, moves, cursor, shown]);
+
   if (loading) return <div className="center-screen"><Spinner /></div>;
   if (!game) {
     return (
@@ -82,6 +116,14 @@ export function GameReview() {
   const when = new Date(game.createdAt).toLocaleDateString(undefined, {
     year: 'numeric', month: 'short', day: 'numeric',
   });
+  const currentAnalysis = analyzeOn && analysis && analysis.cursor === cursor ? analysis.data : null;
+  const playedNext = cursor < total ? moves[cursor] : null;
+  const playedCand = currentAnalysis && playedNext
+    ? currentAnalysis.moves.find((m) => m.x === playedNext.x && m.y === playedNext.y)
+    : null;
+  const aiCandidates = currentAnalysis
+    ? currentAnalysis.moves.map((m) => ({ x: m.x, y: m.y, loss: m.pointsLost }))
+    : undefined;
 
   return (
     <div className="gr">
@@ -99,6 +141,13 @@ export function GameReview() {
             ? <> · final estimate <strong>{scoreLabel(game.finalScore)}</strong></>
             : info.result && <> · <strong>{info.result}</strong></>}
         </p>
+        <button
+          type="button"
+          className={analyzeOn ? 'gr-analyze-btn active' : 'gr-analyze-btn'}
+          onClick={() => setAnalyzeOn((o) => !o)}
+        >
+          {analyzeOn ? 'KataGo: on' : 'Analyze (KataGo)'}
+        </button>
       </div>
 
       {points.length > 0 && (
@@ -107,7 +156,7 @@ export function GameReview() {
 
       <div className="gr-main">
         <div className="gr-board">
-          <Board stones={shown.stones} annotations={annotations} />
+          <Board stones={shown.stones} annotations={annotations} aiCandidates={aiCandidates} />
           <div className="gr-scrub">
             <button type="button" onClick={() => seek(0)} disabled={cursor === 0} aria-label="Start">⏮</button>
             <button type="button" onClick={() => seek(cursor - 1)} disabled={cursor === 0} aria-label="Previous">◀</button>
@@ -118,6 +167,19 @@ export function GameReview() {
           <div className="gr-status">
             move {cursor} / {total}
             {cursorScore !== null && <> · estimate <strong>{scoreLabel(cursorScore)}</strong></>}
+            {analyzeOn && (
+              analysisErr ? <> · <span className="gr-analyze-err">{analysisErr}</span></>
+                : currentAnalysis ? (
+                  <>
+                    {' · '}KataGo <strong>{scoreLabel(currentAnalysis.rootScoreLead)}</strong>
+                    {' · '}{(currentAnalysis.rootWinrate * 100).toFixed(0)}% B
+                    {' · '}{currentAnalysis.rootVisits}v
+                    {playedNext && playedCand && (
+                      <> · played {coordLabel(playedNext.x, playedNext.y)} (−{playedCand.pointsLost.toFixed(1)})</>
+                    )}
+                  </>
+                ) : <> · analyzing…</>
+            )}
           </div>
         </div>
 
