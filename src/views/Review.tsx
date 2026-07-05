@@ -2,14 +2,18 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { deleteGame, listGames } from '../data/games';
-import { foxAvailable, listFoxAccounts, onboardFoxAccount, syncFoxAccount } from '../data/fox';
+import { foxAvailable, listFoxAccounts } from '../data/fox';
 import type { FoxAccountDoc, GameDoc } from '../data/model';
 import { KATAGO_ENABLED } from '../data/katago';
 import { movesFromSgf, sgfInfo } from '../sgf';
+import { replay } from '../goRules';
+import { Board } from '../Board';
 import { Spinner } from '../Spinner';
+import { ManagePlayersModal } from './ManagePlayersModal';
 import './Review.css';
 
 const LOCAL_AI = 'local-ai';
+const PAGE_SIZE = 32;
 const scoreLabel = (lead: number) => `${lead >= 0 ? 'B' : 'W'}+${Math.abs(lead).toFixed(1)}`;
 const shortDate = (ms: number) =>
   new Date(ms).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
@@ -22,6 +26,48 @@ function resultLabel(g: GameDoc): string {
   return '—';
 }
 
+/** One game as a card: the position at move 30 (or the final position if the
+ * game was shorter) plus players, date, moves, and result. */
+function GameCard({ game, onOpen, onDelete }: {
+  game: GameDoc;
+  onOpen: () => void;
+  onDelete: () => void;
+}) {
+  const moves = useMemo(() => movesFromSgf(game.sgf), [game.sgf]);
+  const stones = useMemo(() => replay(moves.slice(0, 30)).stones, [moves]);
+  const info = sgfInfo(game.sgf);
+  return (
+    <div
+      className="game-card"
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => { if (e.key === 'Enter') onOpen(); }}
+    >
+      <button
+        type="button"
+        className="game-card-del"
+        aria-label="Delete game"
+        onClick={(e) => { e.stopPropagation(); onDelete(); }}
+      >
+        ×
+      </button>
+      <div className="game-card-board">
+        <Board stones={stones} displayOnly thumbnail />
+      </div>
+      <div className="game-card-meta">
+        <div className="game-card-players">
+          {info.playerBlack} <span className="review-rank">[{info.rankBlack}]</span>{' '}vs{' '}
+          {info.playerWhite} <span className="review-rank">[{info.rankWhite}]</span>
+        </div>
+        <div className="game-card-sub">
+          {shortDate(game.createdAt)} · {moves.length} moves · {resultLabel(game)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Review() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -29,10 +75,9 @@ export function Review() {
   const [accounts, setAccounts] = useState<FoxAccountDoc[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [foxOk, setFoxOk] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [busy, setBusy] = useState('');       // action label while running; '' = idle
-  const [status, setStatus] = useState('');
-  const [error, setError] = useState('');
+  const [managing, setManaging] = useState(false);
+  const [page, setPage] = useState(0);
+  const [prevSelected, setPrevSelected] = useState(selected);
 
   useEffect(() => {
     if (!user) return;
@@ -69,6 +114,16 @@ export function Review() {
       .sort((a, b) => b.createdAt - a.createdAt);
   }, [games, selected]);
 
+  // Reset to the first page when the filter changes (adjust state during render).
+  if (prevSelected !== selected) {
+    setPrevSelected(selected);
+    setPage(0);
+  }
+
+  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const paged = visible.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+
   const toggle = (key: string) =>
     setSelected((s) => {
       const next = new Set(s);
@@ -76,39 +131,13 @@ export function Review() {
       return next;
     });
 
+  // Reload after a Manage-players change; auto-select any newly-added player.
   const reload = async () => {
     if (!user) return;
     const [g, a] = await Promise.all([listGames(user.uid), listFoxAccounts(user.uid)]);
     setGames(g);
     setAccounts(a);
-  };
-
-  const addAccount = async () => {
-    const name = newName.trim();
-    if (!user || !name || busy) return;
-    setBusy(`Adding ${name}…`); setStatus(''); setError('');
-    try {
-      const acct = await onboardFoxAccount(user.uid, name);
-      setNewName('');
-      await reload();
-      setSelected((s) => new Set(s).add(String(acct.uid)));
-      setStatus(`Added ${acct.username}`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to add account');
-    } finally { setBusy(''); }
-  };
-
-  const syncAll = async () => {
-    if (!user || busy || accounts.length === 0) return;
-    setBusy('Syncing…'); setStatus(''); setError('');
-    try {
-      let added = 0;
-      for (const a of accounts) added += await syncFoxAccount(user.uid, a);
-      await reload();
-      setStatus(`Synced ${added} new game${added === 1 ? '' : 's'}`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Sync failed');
-    } finally { setBusy(''); }
+    setSelected((s) => new Set([...s, ...a.map((x) => String(x.uid))]));
   };
 
   const remove = async (id: string) => {
@@ -121,29 +150,14 @@ export function Review() {
 
   return (
     <div className="review">
-      <h1>Games</h1>
-
-      {foxOk && (
-        <div className="review-sync">
-          <input
-            className="review-add"
-            placeholder="Fox username"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') addAccount(); }}
-            disabled={!!busy}
-          />
-          <button type="button" onClick={addAccount} disabled={!!busy || !newName.trim()}>
-            Add account
+      <div className="review-head">
+        <h1>Games</h1>
+        {foxOk && (
+          <button type="button" className="review-manage" onClick={() => setManaging(true)}>
+            Manage players
           </button>
-          <button type="button" onClick={syncAll} disabled={!!busy || accounts.length === 0}>
-            {busy === 'Syncing…' ? 'Syncing…' : 'Sync'}
-          </button>
-          {busy && <span className="review-status">{busy}</span>}
-          {!busy && status && <span className="review-status">{status}</span>}
-          {!busy && error && <span className="review-error">{error}</span>}
-        </div>
-      )}
+        )}
+      </div>
 
       {chips.length > 0 && (
         <div className="review-filter" role="group" aria-label="Filter by account">
@@ -164,46 +178,45 @@ export function Review() {
       {visible.length === 0 ? (
         <p className="review-empty">
           {accounts.length === 0 && !hasLocalAi
-            ? (foxOk ? 'Add a Fox account above to import games.' : 'No games yet.')
+            ? (foxOk ? 'Add a player with “Manage players” to import games.' : 'No games yet.')
             : 'No games match the selected accounts.'}
         </p>
       ) : (
-        <table className="review-table">
-          <thead>
-            <tr>
-              <th>Black</th>
-              <th>White</th>
-              <th>Date</th>
-              <th className="num">Moves</th>
-              <th className="num">Result</th>
-              <th aria-label="Delete" />
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((g) => {
-              const info = sgfInfo(g.sgf);
-              return (
-                <tr key={g.id} className="review-row" onClick={() => navigate(`/review/${g.id}`)}>
-                  <td>{info.playerBlack} <span className="review-rank">[{info.rankBlack}]</span></td>
-                  <td>{info.playerWhite} <span className="review-rank">[{info.rankWhite}]</span></td>
-                  <td className="review-muted">{shortDate(g.createdAt)}</td>
-                  <td className="num">{movesFromSgf(g.sgf).length}</td>
-                  <td className="num">{resultLabel(g)}</td>
-                  <td className="review-del-cell">
-                    <button
-                      type="button"
-                      className="review-del"
-                      onClick={(e) => { e.stopPropagation(); remove(g.id); }}
-                      aria-label="Delete game"
-                    >
-                      ×
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <>
+        <div className="review-grid">
+          {paged.map((g) => (
+            <GameCard
+              key={g.id}
+              game={g}
+              onOpen={() => navigate(`/review/${g.id}`)}
+              onDelete={() => remove(g.id)}
+            />
+          ))}
+        </div>
+        {visible.length > PAGE_SIZE && (
+          <div className="review-pager">
+            <button type="button" onClick={() => setPage(safePage - 1)} disabled={safePage === 0}>
+              ← Prev
+            </button>
+            <span className="review-muted">
+              {safePage * PAGE_SIZE + 1}–{Math.min(visible.length, (safePage + 1) * PAGE_SIZE)} of {visible.length}
+            </span>
+            <button type="button" onClick={() => setPage(safePage + 1)} disabled={safePage >= pageCount - 1}>
+              Next →
+            </button>
+          </div>
+        )}
+        </>
+      )}
+
+      {managing && user && (
+        <ManagePlayersModal
+          ownerUid={user.uid}
+          accounts={accounts}
+          games={games}
+          onClose={() => setManaging(false)}
+          onChanged={reload}
+        />
       )}
     </div>
   );
