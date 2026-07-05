@@ -57,6 +57,10 @@ type Props = {
   regionAnchor?: { x: number; y: number } | null;
   /** Thumbnail mode: skip the per-cell click targets — pure display, lighter DOM. */
   thumbnail?: boolean;
+  /** Draw a loading spinner on this intersection (in-progress analysis). */
+  spinnerAt?: { x: number; y: number } | null;
+  /** A faded "ghost" stone (e.g. a preview of the next move to be played). */
+  ghostStone?: { x: number; y: number; color: 'B' | 'W' } | null;
 };
 
 const PADDING = 30;
@@ -85,7 +89,7 @@ export function Board({
   stones, onPlay, editable = false, viewport,
   displayOnly = false, showCoords = false,
   numberedMoves, annotations, onCellClick, aiCandidates, region, regionAnchor,
-  thumbnail = false,
+  thumbnail = false, spinnerAt, ghostStone,
 }: Props) {
   const occupied = new Map<string, Stone>();
   for (const s of stones) occupied.set(`${s.x},${s.y}`, s);
@@ -230,6 +234,24 @@ export function Board({
         </g>
       ))}
 
+      {/* Next-move preview: a thick ring so it stays visible around analysis dots */}
+      {ghostStone && (() => {
+        const cx = toPx(ghostStone.x);
+        const cy = toPx(ghostStone.y);
+        const isWhite = ghostStone.color === 'W';
+        return (
+          <g style={{ pointerEvents: 'none' }} opacity={0.92}>
+            {isWhite && <circle cx={cx} cy={cy} r={STONE_R} fill="none" stroke="#222222" strokeWidth={5.5} />}
+            <circle
+              cx={cx} cy={cy} r={STONE_R}
+              fill="none"
+              stroke={isWhite ? '#fafafa' : '#222222'}
+              strokeWidth={isWhite ? 3 : 4}
+            />
+          </g>
+        );
+      })()}
+
       {/* Free-form annotations (numbers, letters, triangles, squares) */}
       {annotations?.map((a, i) => {
         const stone = occupied.get(`${a.x},${a.y}`);
@@ -342,6 +364,29 @@ export function Board({
           </text>
         </g>
       ))}
+      {/* Top policy move while analysis runs: green dot with a spinner inside. */}
+      {spinnerAt && (() => {
+        const cx = toPx(spinnerAt.x);
+        const cy = toPx(spinnerAt.y);
+        const r = STONE_R * 0.5;
+        const circ = 2 * Math.PI * r;
+        return (
+          <g style={{ pointerEvents: 'none' }}>
+            <circle cx={cx} cy={cy} r={STONE_R * 0.9} fill={aiColor(0)} opacity={0.82} />
+            <circle
+              cx={cx} cy={cy} r={r}
+              fill="none" stroke="#10240f" strokeWidth={2.5} strokeLinecap="round"
+              strokeDasharray={`${circ * 0.7} ${circ}`} opacity={0.85}
+            >
+              <animateTransform
+                attributeName="transform" type="rotate"
+                from={`0 ${cx} ${cy}`} to={`360 ${cx} ${cy}`}
+                dur="0.8s" repeatCount="indefinite"
+              />
+            </circle>
+          </g>
+        );
+      })()}
     </svg>
   );
 }

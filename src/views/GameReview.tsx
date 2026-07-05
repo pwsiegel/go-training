@@ -6,7 +6,8 @@ import { movesFromSgf, sgfInfo } from '../sgf';
 import { getGame } from '../data/games';
 import type { GameDoc } from '../data/model';
 import type { Color } from '../types';
-import { analyzePosition, KATAGO_NETS, type WebAnalysis } from '../katago/webEngine';
+import { analyzePosition, BROWSER_MODELS, LOCAL_MODEL, type WebAnalysis } from '../katago/webEngine';
+import { katagoBackendAvailable } from '../data/katago';
 import { Spinner } from '../Spinner';
 import './GameReview.css';
 
@@ -30,9 +31,40 @@ export function GameReview() {
   const [loaded, setLoaded] = useState<{ id: string; game: GameDoc | null } | null>(null);
   const [cursor, setCursor] = useState(0);
   const [analyzeOn, setAnalyzeOn] = useState(false);
-  const [netId, setNetId] = useState(KATAGO_NETS[0].id);
+  const [modelId, setModelId] = useState(BROWSER_MODELS[0].id);
+  const [visitsByModel, setVisitsByModel] = useState<Record<string, number>>(
+    () => Object.fromEntries([...BROWSER_MODELS, LOCAL_MODEL].map((m) => [m.id, m.defaultVisits])),
+  );
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [localAvailable, setLocalAvailable] = useState(false);
   const [analysis, setAnalysis] = useState<{ cursor: number; data: WebAnalysis } | null>(null);
   const [analysisErr, setAnalysisErr] = useState('');
+  const [partialTop, setPartialTop] = useState<{ cursor: number; x: number; y: number } | null>(null);
+  const settingsRef = useRef<HTMLDivElement>(null);
+
+  // Offer the native-backend model only when it's reachable (dev with `make api`).
+  const models = useMemo(
+    () => (localAvailable ? [...BROWSER_MODELS, LOCAL_MODEL] : BROWSER_MODELS),
+    [localAvailable],
+  );
+  const model = models.find((m) => m.id === modelId) ?? models[0];
+  const visits = visitsByModel[model.id] ?? model.defaultVisits;
+
+  useEffect(() => {
+    let on = true;
+    katagoBackendAvailable().then((ok) => { if (on) setLocalAvailable(ok); });
+    return () => { on = false; };
+  }, []);
+
+  // Close the settings menu on an outside click.
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) setSettingsOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [settingsOpen]);
 
   useEffect(() => {
     let active = true;
@@ -70,24 +102,40 @@ export function GameReview() {
     return () => window.removeEventListener('keydown', onKey);
   }, [total]);
 
-  // In-browser KataGo analysis of the current position (opt-in). Scrubbing to a
-  // new position cancels the stale search (shared 'interactive' engine group).
+  // KataGo analysis of the current position (opt-in). Browser models cancel the
+  // stale search via the engine's 'interactive' group; the local backend is
+  // canceled via the abort signal when scrubbing to a new position.
   useEffect(() => {
     if (!analyzeOn || !game) return;
     let active = true;
+    const ctrl = new AbortController();
     const forCursor = cursor;
     const toPlay: Color =
       cursor < moves.length ? moves[cursor].color
         : cursor > 0 ? (moves[cursor - 1].color === 'B' ? 'W' : 'B')
           : 'B';
-    const net = KATAGO_NETS.find((n) => n.id === netId) ?? KATAGO_NETS[0];
+    const nextMove = cursor < moves.length ? moves[cursor] : null;
+    const childStones = nextMove ? replay(moves.slice(0, cursor + 1)).stones : null;
     analyzePosition({
-      net,
+      model,
       stones: shown.stones,
       moves: moves.slice(0, cursor),
       toPlay,
-      positionId: `${id}:${cursor}:${netId}`,
-      visits: 50,
+      positionId: `${id}:${cursor}:${model.id}`,
+      visits,
+      signal: ctrl.signal,
+      evalNext: nextMove && childStones ? { move: { x: nextMove.x, y: nextMove.y }, stones: childStones } : null,
+      onProgress: (p) => {
+        if (!active || !p.policyTop) return;
+        const top = p.policyTop;
+        // Keep the same object when unchanged so the board (and its spinner
+        // animation) doesn't re-render on every progress tick.
+        setPartialTop((prev) =>
+          prev && prev.cursor === forCursor && prev.x === top.x && prev.y === top.y
+            ? prev
+            : { cursor: forCursor, x: top.x, y: top.y },
+        );
+      },
     })
       .then((res) => {
         if (!active || res === null) return;
@@ -98,8 +146,8 @@ export function GameReview() {
         if (!active) return;
         setAnalysisErr(e instanceof Error ? e.message : 'analysis failed');
       });
-    return () => { active = false; };
-  }, [analyzeOn, netId, game, id, moves, cursor, shown]);
+    return () => { active = false; ctrl.abort(); };
+  }, [analyzeOn, model, visits, game, id, moves, cursor, shown]);
 
   if (loading) return <div className="center-screen"><Spinner /></div>;
   if (!game) {
@@ -120,12 +168,18 @@ export function GameReview() {
     year: 'numeric', month: 'short', day: 'numeric',
   });
   const currentAnalysis = analyzeOn && analysis && analysis.cursor === cursor ? analysis.data : null;
+  const running = analyzeOn && !currentAnalysis && !analysisErr;
+  const showTop = running && partialTop && partialTop.cursor === cursor ? partialTop : null;
   const playedNext = cursor < total ? moves[cursor] : null;
-  const playedCand = currentAnalysis && playedNext
-    ? currentAnalysis.moves.find((m) => m.x === playedNext.x && m.y === playedNext.y)
-    : null;
   const aiCandidates = currentAnalysis
-    ? currentAnalysis.moves.map((m) => ({ x: m.x, y: m.y, loss: m.pointsLost }))
+    ? [
+        ...currentAnalysis.moves.map((m) => ({ x: m.x, y: m.y, loss: m.pointsLost })),
+        // The played move gets its own dot when the search didn't already list it.
+        ...(playedNext && currentAnalysis.playedEval
+          && !currentAnalysis.moves.some((m) => m.x === playedNext.x && m.y === playedNext.y)
+          ? [{ x: playedNext.x, y: playedNext.y, loss: currentAnalysis.playedEval.pointsLost }]
+          : []),
+      ]
     : undefined;
 
   return (
@@ -144,23 +198,63 @@ export function GameReview() {
             ? <> · final estimate <strong>{scoreLabel(game.finalScore)}</strong></>
             : info.result && <> · <strong>{info.result}</strong></>}
         </p>
-        <div className="gr-analyze-controls">
+        <div className="gr-analyze-controls" ref={settingsRef}>
           <button
             type="button"
             className={analyzeOn ? 'gr-analyze-btn active' : 'gr-analyze-btn'}
             onClick={() => setAnalyzeOn((o) => !o)}
           >
-            {analyzeOn ? 'KataGo: on' : 'Analyze (KataGo)'}
+            {analyzeOn ? 'AI review: on' : 'AI review'}
           </button>
-          {analyzeOn && (
-            <select
-              className="gr-net-select"
-              value={netId}
-              onChange={(e) => setNetId(e.target.value)}
-              aria-label="Analysis net"
-            >
-              {KATAGO_NETS.map((n) => <option key={n.id} value={n.id}>{n.label}</option>)}
-            </select>
+          <button
+            type="button"
+            className="gr-gear"
+            onClick={() => setSettingsOpen((o) => !o)}
+            aria-label="Analysis settings"
+            aria-expanded={settingsOpen}
+          >
+            ⚙
+          </button>
+          {settingsOpen && (
+            <div className="gr-settings" role="menu">
+              <div className="gr-settings-head">Model</div>
+              {models.map((m) => (
+                <label key={m.id} className={m.id === modelId ? 'gr-model active' : 'gr-model'}>
+                  <input
+                    type="radio"
+                    name="katago-model"
+                    checked={m.id === modelId}
+                    onChange={() => setModelId(m.id)}
+                  />
+                  <span className="gr-model-main">
+                    <span className="gr-model-name">{m.name}</span>
+                    <span className="gr-model-sub">{m.runtime} · {m.strength}</span>
+                  </span>
+                  <input
+                    type="number"
+                    className="gr-model-visits"
+                    min={1}
+                    value={visitsByModel[m.id] ?? m.defaultVisits}
+                    onChange={(e) =>
+                      setVisitsByModel((v) => ({ ...v, [m.id]: Math.max(1, Math.floor(Number(e.target.value) || 1)) }))
+                    }
+                    aria-label={`${m.name} playouts`}
+                  />
+                  <span className="gr-model-visits-label">playouts</span>
+                  {(visitsByModel[m.id] ?? m.defaultVisits) !== m.defaultVisits && (
+                    <button
+                      type="button"
+                      className="gr-model-reset"
+                      onClick={() => setVisitsByModel((v) => ({ ...v, [m.id]: m.defaultVisits }))}
+                      title={`Reset to ${m.defaultVisits}`}
+                      aria-label={`Reset ${m.name} playouts to default (${m.defaultVisits})`}
+                    >
+                      ↺
+                    </button>
+                  )}
+                </label>
+              ))}
+            </div>
           )}
         </div>
       </div>
@@ -171,7 +265,13 @@ export function GameReview() {
 
       <div className="gr-main">
         <div className="gr-board">
-          <Board stones={shown.stones} annotations={annotations} aiCandidates={aiCandidates} />
+          <Board
+            stones={shown.stones}
+            annotations={annotations}
+            aiCandidates={aiCandidates}
+            spinnerAt={showTop ? { x: showTop.x, y: showTop.y } : null}
+            ghostStone={playedNext ? { x: playedNext.x, y: playedNext.y, color: playedNext.color } : null}
+          />
           <div className="gr-scrub">
             <button type="button" onClick={() => seek(0)} disabled={cursor === 0} aria-label="Start">⏮</button>
             <button type="button" onClick={() => seek(cursor - 1)} disabled={cursor === 0} aria-label="Previous">◀</button>
@@ -189,8 +289,8 @@ export function GameReview() {
                     {' · '}KataGo <strong>{scoreLabel(currentAnalysis.rootScoreLead)}</strong>
                     {' · '}{(currentAnalysis.rootWinrate * 100).toFixed(0)}% B
                     {' · '}{currentAnalysis.rootVisits}v
-                    {playedNext && playedCand && (
-                      <> · played {coordLabel(playedNext.x, playedNext.y)} (−{playedCand.pointsLost.toFixed(1)})</>
+                    {playedNext && currentAnalysis.playedEval && (
+                      <> · played {coordLabel(playedNext.x, playedNext.y)} (−{currentAnalysis.playedEval.pointsLost.toFixed(1)})</>
                     )}
                   </>
                 ) : <> · analyzing…</>
