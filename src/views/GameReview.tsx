@@ -6,7 +6,7 @@ import { movesFromSgf, sgfInfo } from '../sgf';
 import { getGame } from '../data/games';
 import type { GameDoc } from '../data/model';
 import type { Color } from '../types';
-import { analyzePosition, type WebAnalysis } from '../katago/webEngine';
+import { analyzePosition, KATAGO_NETS, type WebAnalysis } from '../katago/webEngine';
 import { Spinner } from '../Spinner';
 import './GameReview.css';
 
@@ -30,6 +30,7 @@ export function GameReview() {
   const [loaded, setLoaded] = useState<{ id: string; game: GameDoc | null } | null>(null);
   const [cursor, setCursor] = useState(0);
   const [analyzeOn, setAnalyzeOn] = useState(false);
+  const [netId, setNetId] = useState(KATAGO_NETS[0].id);
   const [analysis, setAnalysis] = useState<{ cursor: number; data: WebAnalysis } | null>(null);
   const [analysisErr, setAnalysisErr] = useState('');
 
@@ -79,11 +80,13 @@ export function GameReview() {
       cursor < moves.length ? moves[cursor].color
         : cursor > 0 ? (moves[cursor - 1].color === 'B' ? 'W' : 'B')
           : 'B';
+    const net = KATAGO_NETS.find((n) => n.id === netId) ?? KATAGO_NETS[0];
     analyzePosition({
+      net,
       stones: shown.stones,
       moves: moves.slice(0, cursor),
       toPlay,
-      positionId: `${id}:${cursor}`,
+      positionId: `${id}:${cursor}:${netId}`,
       visits: 50,
     })
       .then((res) => {
@@ -96,7 +99,7 @@ export function GameReview() {
         setAnalysisErr(e instanceof Error ? e.message : 'analysis failed');
       });
     return () => { active = false; };
-  }, [analyzeOn, game, id, moves, cursor, shown]);
+  }, [analyzeOn, netId, game, id, moves, cursor, shown]);
 
   if (loading) return <div className="center-screen"><Spinner /></div>;
   if (!game) {
@@ -141,13 +144,25 @@ export function GameReview() {
             ? <> · final estimate <strong>{scoreLabel(game.finalScore)}</strong></>
             : info.result && <> · <strong>{info.result}</strong></>}
         </p>
-        <button
-          type="button"
-          className={analyzeOn ? 'gr-analyze-btn active' : 'gr-analyze-btn'}
-          onClick={() => setAnalyzeOn((o) => !o)}
-        >
-          {analyzeOn ? 'KataGo: on' : 'Analyze (KataGo)'}
-        </button>
+        <div className="gr-analyze-controls">
+          <button
+            type="button"
+            className={analyzeOn ? 'gr-analyze-btn active' : 'gr-analyze-btn'}
+            onClick={() => setAnalyzeOn((o) => !o)}
+          >
+            {analyzeOn ? 'KataGo: on' : 'Analyze (KataGo)'}
+          </button>
+          {analyzeOn && (
+            <select
+              className="gr-net-select"
+              value={netId}
+              onChange={(e) => setNetId(e.target.value)}
+              aria-label="Analysis net"
+            >
+              {KATAGO_NETS.map((n) => <option key={n.id} value={n.id}>{n.label}</option>)}
+            </select>
+          )}
+        </div>
       </div>
 
       {points.length > 0 && (
