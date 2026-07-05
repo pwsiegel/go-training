@@ -39,6 +39,17 @@ export type AnalyzeParams = {
   signal?: AbortSignal;
 };
 
+/** Whether the native KataGo backend is reachable + configured (local dev with
+ * `make api`). Used to offer the local full-strength model in review. */
+export async function katagoBackendAvailable(): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/api/katago/health`);
+    return res.ok && (await res.json()).configured === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function analyze(p: AnalyzeParams): Promise<Analysis> {
   const res = await fetch(`${API_BASE}/api/katago/analyze`, {
     method: 'POST',
