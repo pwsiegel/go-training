@@ -4,7 +4,6 @@ import { useAuth } from '../auth';
 import { deleteGame, listGames } from '../data/games';
 import { foxAvailable, listFoxAccounts } from '../data/fox';
 import type { FoxAccountDoc, GameDoc } from '../data/model';
-import { KATAGO_ENABLED } from '../data/katago';
 import { movesFromSgf, sgfInfo } from '../sgf';
 import { replay } from '../goRules';
 import { Board } from '../Board';
@@ -96,10 +95,10 @@ export function Review() {
 
   const hasLocalAi = useMemo(() => !!games?.some((g) => g.source === 'go-training'), [games]);
 
-  // Filter chips: one per tracked Fox account, plus Local AI where KataGo runs.
+  // Filter chips: one per tracked Fox account, plus games played against KataGo.
   const chips = useMemo(() => {
     const list = accounts.map((a) => ({ key: String(a.uid), label: a.username }));
-    if (KATAGO_ENABLED && hasLocalAi) list.push({ key: LOCAL_AI, label: 'Local AI' });
+    if (hasLocalAi) list.push({ key: LOCAL_AI, label: 'vs KataGo' });
     return list;
   }, [accounts, hasLocalAi]);
 
@@ -107,7 +106,7 @@ export function Review() {
     if (!games) return [];
     return games
       .filter((g) => {
-        if (g.source === 'go-training') return KATAGO_ENABLED && selected.has(LOCAL_AI);
+        if (g.source === 'go-training') return selected.has(LOCAL_AI);
         return (g.blackUid != null && selected.has(String(g.blackUid)))
           || (g.whiteUid != null && selected.has(String(g.whiteUid)));
       })
