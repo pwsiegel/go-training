@@ -55,6 +55,8 @@ type Props = {
   region?: { colMin: number; colMax: number; rowMin: number; rowMax: number } | null;
   /** First corner while a region is being selected (shown as a single cell). */
   regionAnchor?: { x: number; y: number } | null;
+  /** Thumbnail mode: skip the per-cell click targets — pure display, lighter DOM. */
+  thumbnail?: boolean;
 };
 
 const PADDING = 30;
@@ -83,6 +85,7 @@ export function Board({
   stones, onPlay, editable = false, viewport,
   displayOnly = false, showCoords = false,
   numberedMoves, annotations, onCellClick, aiCandidates, region, regionAnchor,
+  thumbnail = false,
 }: Props) {
   const occupied = new Map<string, Stone>();
   for (const s of stones) occupied.set(`${s.x},${s.y}`, s);
@@ -181,7 +184,7 @@ export function Board({
       ))}
 
       {/* Click targets */}
-      {Array.from({ length: BOARD_SIZE * BOARD_SIZE }, (_, i) => {
+      {!thumbnail && Array.from({ length: BOARD_SIZE * BOARD_SIZE }, (_, i) => {
         const x = i % BOARD_SIZE;
         const y = Math.floor(i / BOARD_SIZE);
         const key = `${x},${y}`;

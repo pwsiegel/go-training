@@ -5,6 +5,7 @@
 
 import { collection, deleteDoc, doc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase';
+import { listGames } from './games';
 import type { FoxAccountDoc, GameDoc } from './model';
 
 const API_BASE = import.meta.env.VITE_KATAGO_API ?? '';
@@ -55,8 +56,24 @@ export async function listFoxAccounts(ownerUid: string): Promise<FoxAccountDoc[]
     .sort((a, b) => a.username.localeCompare(b.username));
 }
 
-export async function removeFoxAccount(ownerUid: string, accountUid: number): Promise<void> {
-  await deleteDoc(accountDoc(ownerUid, accountUid));
+/** Delete a tracked player and their games — but keep any game whose other
+ * player is still tracked. Returns the number of games actually deleted. */
+export async function deleteFoxPlayer(ownerUid: string, account: FoxAccountDoc): Promise<number> {
+  const [games, accounts] = await Promise.all([listGames(ownerUid), listFoxAccounts(ownerUid)]);
+  const stillTracked = new Set(accounts.map((a) => a.uid).filter((uid) => uid !== account.uid));
+  const doomed = games.filter(
+    (g) => g.source === 'fox'
+      && (g.blackUid === account.uid || g.whiteUid === account.uid)
+      && !stillTracked.has(g.blackUid ?? -1)
+      && !stillTracked.has(g.whiteUid ?? -1),
+  );
+  for (let i = 0; i < doomed.length; i += 400) {
+    const batch = writeBatch(db);
+    for (const g of doomed.slice(i, i + 400)) batch.delete(doc(db, 'games', g.id));
+    await batch.commit();
+  }
+  await deleteDoc(accountDoc(ownerUid, account.uid));
+  return doomed.length;
 }
 
 /** Write imported games to `games/fox_{chessid}` — deterministic ids make

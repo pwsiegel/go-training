@@ -45,6 +45,12 @@ export type SgfInfo = {
   result: string;       // RE[] value, e.g. "W+0.25" (empty when absent)
 };
 
+/** Fox ranks use Chinese dan/kyu suffixes ("5段", "9级"); render them as
+ * "5d" / "9k". No-op for ranks that don't use those characters. */
+function normalizeRank(rank: string): string {
+  return rank.replace(/段/g, 'd').replace(/[级級]/g, 'k');
+}
+
 /** Player names + ranks + date + result from an SGF root (empty strings when
  * absent). */
 export function sgfInfo(sgf: string): SgfInfo {
@@ -52,8 +58,8 @@ export function sgfInfo(sgf: string): SgfInfo {
   return {
     playerBlack: prop('PB'),
     playerWhite: prop('PW'),
-    rankBlack: prop('BR'),
-    rankWhite: prop('WR'),
+    rankBlack: normalizeRank(prop('BR')),
+    rankWhite: normalizeRank(prop('WR')),
     date: prop('DT'),
     result: prop('RE'),
   };
