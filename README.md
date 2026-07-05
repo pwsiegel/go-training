@@ -17,9 +17,9 @@ npm run lint
 The **Review** page (browse + replay saved games) is always available and ships to Pages, with **KataGo analysis that runs entirely in the browser** — TensorFlow.js / WebGPU, no backend. A settings menu picks the net (b18 / b6) and playouts; net weights are served from Firebase Storage. Its games come from two sources:
 
 - **Fox** — imported from [Fox Weiqi](https://www.foxwq.com/) by a local-only sync (the Fox API sends no CORS headers, so it can't run in the deployed app). Synced games persist to Firestore and are reviewable here on GitHub Pages.
-- **Local KataGo** — games played on the **Play** page (a full game against a human-like KataGo at a chosen rank).
+- **Play** — games played on the **Play** page: a full game against a human-like KataGo at a chosen rank. The opponent is the human-SL net (`b18c384nbt-humanv0`) run **in the browser** (WebGPU) — no backend — so Play ships to Pages too.
 
-**Play** and the "explore" analysis hints still need the private backend (`/api/katago`) and are gated by `VITE_KATAGO`; when that backend is running, review also offers a full-strength "Local" analysis model. Enable them with `VITE_KATAGO=1 npm run dev` alongside `make api` (which also serves the Fox sync) from the private repo. The dev server proxies `/api/katago` and `/api/fox` to the backend; production ships without the gated features.
+Only the **"explore"** analysis hints still need the private backend (`/api/katago`) and are gated by `VITE_KATAGO` — enable them with `VITE_KATAGO=1 npm run dev` alongside `make api` (which also serves the Fox sync). When that backend is running, Review and Play additionally offer it as an optional native-KataGo engine. The dev server proxies `/api/katago` and `/api/fox` to the backend.
 
 ## Deploy
 
