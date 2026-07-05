@@ -1,9 +1,25 @@
 /* Profile + login, ported from web/src/Profile.css. */
-.profile { max-width: 36rem; margin: 0 auto; padding: 2rem 1.5rem 4rem; color: var(--text); }
-.profile-header { padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); margin-bottom: 2rem; }
-.profile-header h1 { margin: 0; font-size: 1.5rem; font-weight: 600; }
+/* Profile modal */
+.profile-modal-backdrop {
+  position: fixed; inset: 0; left: var(--sidebar-w, 0);
+  background: rgba(0, 0, 0, 0.5); z-index: 1200;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 3rem 1rem; overflow-y: auto;
+}
+.profile-modal {
+  position: relative; background: var(--bg); color: var(--text);
+  border-radius: 8px; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+  width: 100%; max-width: 32rem; margin: auto; padding: 1.5rem;
+}
+.profile-modal h2 { margin: 0 0 1.25rem; font-size: 1.3rem; }
+.profile-modal-close {
+  position: absolute; top: 0.5rem; right: 0.5rem; width: 2rem; height: 2rem;
+  border: none; background: transparent; font-size: 1.5rem; line-height: 1;
+  cursor: pointer; color: var(--text-muted); border-radius: 4px;
+}
+.profile-modal-close:hover { background: var(--bg-muted); color: var(--text); }
 
-.profile-form { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem 1.5rem; }
+.profile-form { display: block; }
 .profile-row { display: flex; flex-direction: column; gap: 0.4rem; }
 .profile-row + .profile-row { margin-top: 1.25rem; }
 .profile-label { font-size: 0.85rem; color: var(--text-tertiary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
@@ -12,7 +28,6 @@
   background: var(--bg); border: 1px solid var(--border); border-radius: 4px; box-sizing: border-box;
 }
 .profile-input:focus { outline: none; border-color: var(--border-strong); }
-.profile-hint { margin: 0.5rem 0 0; font-size: 0.85rem; color: var(--text-muted); }
 .profile-email { margin: 1rem 0 0; font-size: 0.85rem; color: var(--text-faint); }
 .profile-actions { display: flex; align-items: center; gap: 0.75rem; margin-top: 1.25rem; }
 .profile-save { padding: 0.45rem 1rem; font: inherit; background: var(--text); color: var(--bg); border: none; border-radius: 4px; cursor: pointer; }

@@ -1,0 +1,9 @@
+.home {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 3rem 1.5rem;
+}
+
+.home-hint {
+  color: var(--text-muted);
+}

@@ -47,7 +47,7 @@ export function BatchDrawer() {
   return (
     <>
       <button type="button" className={`batch-toggle${open ? ' open' : ''}`} onClick={() => setOpen((o) => !o)}>
-        {open ? '›' : '‹'} Batch ({batch.length})
+        {open ? '›' : '‹'} Current submission ({batch.length})
       </button>
       <aside className={`batch-drawer${open ? ' open' : ''}`} aria-hidden={!open}>
         <div className="batch-drawer-head">

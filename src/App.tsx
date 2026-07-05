@@ -17,7 +17,7 @@ import { Submissions } from './views/Submissions';
 import { SubmissionDetail } from './views/SubmissionDetail';
 import { History } from './views/History';
 import { Teacher } from './views/Teacher';
-import { Profile } from './views/Profile';
+import { ProfileModal } from './views/Profile';
 import { Play } from './views/Play';
 import { Review } from './views/Review';
 import { GameReview } from './views/GameReview';
@@ -25,6 +25,10 @@ import { KATAGO_ENABLED } from './data/katago';
 
 function navClass({ isActive }: { isActive: boolean }) {
   return isActive ? 'sidebar-link active' : 'sidebar-link';
+}
+
+function subNavClass({ isActive }: { isActive: boolean }) {
+  return isActive ? 'sidebar-link sidebar-sublink active' : 'sidebar-link sidebar-sublink';
 }
 
 /** `/` lands teachers on the teacher view by default. The "Student view" swap
@@ -42,6 +46,7 @@ function Sidebar() {
   const { pathname } = useLocation();
   const isTeacher = pathname.startsWith('/teacher');
   const [canTeach, setCanTeach] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   useEffect(() => {
     if (user) listStudents(user.uid).then((s) => setCanTeach(s.length > 0)).catch(() => {});
   }, [user]);
@@ -54,17 +59,23 @@ function Sidebar() {
         ) : (
           <>
             <NavLink to="/" end className={navClass}>Home</NavLink>
-            <NavLink to="/library" className={navClass}>Library</NavLink>
-            <NavLink to="/submissions" end className={navClass}>Submissions</NavLink>
-            <NavLink to="/history" className={navClass}>History</NavLink>
-            {KATAGO_ENABLED && <NavLink to="/play" className={navClass}>Play</NavLink>}
+            <div className="sidebar-group">
+              <span className="sidebar-group-label">Tsumego</span>
+              <NavLink to="/library" className={subNavClass}>Library</NavLink>
+              <NavLink to="/submissions" end className={subNavClass}>Submissions</NavLink>
+              <NavLink to="/history" className={subNavClass}>History</NavLink>
+            </div>
+            {KATAGO_ENABLED && <NavLink to="/play" className={navClass}>Play AI</NavLink>}
             <NavLink to="/review" className={navClass}>Review</NavLink>
           </>
         )}
-        <NavLink to="/profile" className={navClass}>Profile</NavLink>
       </nav>
       <div className="sidebar-foot">
-        {profile?.displayName && <span className="sidebar-name">{profile.displayName}</span>}
+        {profile?.displayName && (
+          <button type="button" className="sidebar-name" onClick={() => setShowProfile(true)}>
+            {profile.displayName}
+          </button>
+        )}
         {canTeach && (
           <Link to={isTeacher ? '/' : '/teacher'} state={isTeacher ? { fromTeacher: true } : undefined} className="sidebar-btn">
             {isTeacher ? 'Student view' : 'Teacher view'}
@@ -73,6 +84,7 @@ function Sidebar() {
         <button type="button" className="sidebar-btn" onClick={signOutUser}>Sign out</button>
         <ThemeToggle />
       </div>
+      {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}
     </aside>
   );
 }
@@ -93,7 +105,9 @@ export default function App() {
     );
   }
 
-  const isTeacherRoute = (backgroundLocation ?? location).pathname.startsWith('/teacher');
+  // The batch drawer ("current submission") belongs to the tsumego workflow only.
+  const effectivePath = (backgroundLocation ?? location).pathname;
+  const showBatch = /^\/(library|submissions|history|solve)(\/|$)/.test(effectivePath);
 
   return (
     <BatchProvider>
@@ -113,7 +127,6 @@ export default function App() {
             <Route path="/review/:id" element={<GameReview />} />
             <Route path="/teacher" element={<Teacher />} />
             <Route path="/teacher/:studentUid" element={<Teacher />} />
-            <Route path="/profile" element={<Profile />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
           {backgroundLocation && (
@@ -122,7 +135,7 @@ export default function App() {
             </Routes>
           )}
         </main>
-        {!isTeacherRoute && <BatchDrawer />}
+        {showBatch && <BatchDrawer />}
       </div>
     </BatchProvider>
   );
