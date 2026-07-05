@@ -94,11 +94,59 @@ function toWeb(a: KataGoAnalysisPayload): WebAnalysis {
 
 // getDownloadURL is a gated network call (Storage rules) — resolve each net once.
 const urlCache = new Map<string, Promise<string>>();
-function netUrl(model: AnalysisModel): Promise<string> {
-  const path = model.netPath!;
+function storageUrl(path: string): Promise<string> {
   let url = urlCache.get(path);
   if (!url) { url = getDownloadURL(ref(storage, path)); urlCache.set(path, url); }
   return url;
+}
+const netUrl = (model: AnalysisModel): Promise<string> => storageUrl(model.netPath!);
+
+const HUMAN_NET_PATH = 'katago/b18c384nbt-humanv0.bin.gz';
+
+/** Play a human-like move: sample the human net's rank-conditioned policy (like
+ * the backend /genmove). Excludes pass and the ko point; temperature < 1 sharpens.
+ * Returns the move (Black-perspective score estimate) or a pass when no legal move. */
+export async function genmoveBrowser(args: {
+  stones: Stone[];
+  previousStones?: Stone[];
+  moves: GameMove[];
+  toPlay: Color;
+  rank: string;
+  temperature: number;
+  komi?: number;
+  koPoint?: { x: number; y: number } | null;
+}): Promise<{ move: { x: number; y: number } | null; scoreLead: number }> {
+  const { policy, rootScoreLead } = await getKataGoEngineClient().humanPolicy({
+    modelUrl: await storageUrl(HUMAN_NET_PATH),
+    backend: 'webgpu',
+    board: toBoardState(args.stones),
+    previousBoard: args.previousStones ? toBoardState(args.previousStones) : undefined,
+    currentPlayer: toPlayer(args.toPlay),
+    moveHistory: toEngineMoves(args.moves),
+    komi: args.komi ?? 7.5,
+    rules: 'chinese',
+    humanSLProfile: args.rank,
+  });
+
+  const koIdx = args.koPoint ? args.koPoint.y * BOARD_SIZE + args.koPoint.x : -1;
+  const temp = Math.max(0.05, args.temperature);
+  const weights = new Float64Array(BOARD_SIZE * BOARD_SIZE);
+  let total = 0;
+  for (let i = 0; i < weights.length; i++) {
+    if (i === koIdx || policy[i] <= 0) continue;
+    const w = Math.pow(policy[i], 1 / temp);
+    weights[i] = w;
+    total += w;
+  }
+  if (total <= 0) return { move: null, scoreLead: rootScoreLead };
+
+  let r = Math.random() * total;
+  let chosen = 0;
+  for (let i = 0; i < weights.length; i++) {
+    r -= weights[i];
+    if (r <= 0) { chosen = i; break; }
+  }
+  return { move: { x: chosen % BOARD_SIZE, y: Math.floor(chosen / BOARD_SIZE) }, scoreLead: rootScoreLead };
 }
 
 type AnalyzeArgs = {

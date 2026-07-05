@@ -21,7 +21,6 @@ import { ProfileModal } from './views/Profile';
 import { Play } from './views/Play';
 import { Review } from './views/Review';
 import { GameReview } from './views/GameReview';
-import { KATAGO_ENABLED } from './data/katago';
 
 function navClass({ isActive }: { isActive: boolean }) {
   return isActive ? 'sidebar-link active' : 'sidebar-link';
@@ -65,7 +64,7 @@ function Sidebar() {
               <NavLink to="/submissions" end className={subNavClass}>Submissions</NavLink>
               <NavLink to="/history" className={subNavClass}>History</NavLink>
             </div>
-            {KATAGO_ENABLED && <NavLink to="/play" className={navClass}>Play AI</NavLink>}
+            <NavLink to="/play" className={navClass}>Play AI</NavLink>
             <NavLink to="/review" className={navClass}>Review</NavLink>
           </>
         )}
@@ -122,7 +121,7 @@ export default function App() {
             <Route path="/submissions" element={<Submissions />} />
             <Route path="/submissions/:id" element={<SubmissionDetail />} />
             <Route path="/history" element={<History />} />
-            {KATAGO_ENABLED && <Route path="/play" element={<Play />} />}
+            <Route path="/play" element={<Play />} />
             <Route path="/review" element={<Review />} />
             <Route path="/review/:id" element={<GameReview />} />
             <Route path="/teacher" element={<Teacher />} />

@@ -29,6 +29,7 @@ export function fillInputsV7Fast(args: {
   komi: number;
   rules?: GameRules;
   conservativePassAndIsRoot?: boolean;
+  maxHistory?: number; // cap recent-move planes 9-13 (0 = none, like KataGo ignorePreRootHistory)
   libertyMap?: Uint8Array; // per-point liberties capped to 3, for stones only
   areaMap?: Uint8Array; // KataGo-style area map for planes 18/19
   ladderedStones?: Uint8Array; // V7 plane 14, 1 where stones are ladder-capturable
@@ -113,8 +114,9 @@ export function fillInputsV7Fast(args: {
   const historyPlanes = [9, 10, 11, 12, 13] as const;
   const passGlobals = [0, 1, 2, 3, 4] as const;
   const expectedPlayers: Player[] = [opp, pla, opp, pla, opp];
+  const maxHistory = args.maxHistory ?? 5;
   if (!suppressHistory) {
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < Math.min(5, maxHistory); i++) {
       const m = recentMoves[recentMoves.length - 1 - i];
       if (!m) break;
       if (m.player !== expectedPlayers[i]) break;

@@ -34,6 +34,7 @@ class KataGoEngineClient {
   >();
   private pendingEval = new Map<number, { resolve: (e: EvalResult) => void; reject: (e: Error) => void }>();
   private pendingEvalBatch = new Map<number, { resolve: (e: EvalBatchResult) => void; reject: (e: Error) => void }>();
+  private pendingHumanPolicy = new Map<number, { resolve: (p: { policy: Float32Array; rootScoreLead: number }) => void; reject: (e: Error) => void }>();
   private backend: string | null = null;
   private modelName: string | null = null;
   private lastLoggedEngineLabel: string | null = null;
@@ -102,6 +103,15 @@ class KataGoEngineClient {
         this.syncEngineInfo(msg);
         if (!msg.ok || !msg.evals) pending.reject(new Error(msg.error ?? 'Eval batch failed'));
         else pending.resolve(msg.evals);
+        return;
+      }
+      if (msg.type === 'katago:human_policy_result') {
+        const pending = this.pendingHumanPolicy.get(msg.id);
+        if (!pending) return;
+        this.pendingHumanPolicy.delete(msg.id);
+        this.syncEngineInfo(msg);
+        if (!msg.ok || !msg.policy) pending.reject(new Error(msg.error ?? 'Human policy failed'));
+        else pending.resolve({ policy: msg.policy, rootScoreLead: msg.rootScoreLead ?? 0 });
       }
     };
 
@@ -116,9 +126,11 @@ class KataGoEngineClient {
       for (const p of this.pending.values()) p.reject(err);
       for (const p of this.pendingEval.values()) p.reject(err);
       for (const p of this.pendingEvalBatch.values()) p.reject(err);
+      for (const p of this.pendingHumanPolicy.values()) p.reject(err);
       this.pending.clear();
       this.pendingEval.clear();
       this.pendingEvalBatch.clear();
+      this.pendingHumanPolicy.clear();
     };
   }
 
@@ -328,6 +340,47 @@ class KataGoEngineClient {
       this.postToWorker(req);
     } catch (err) {
       this.pendingEvalBatch.delete(id);
+      throw err;
+    }
+    return promise;
+  }
+
+  /** Human-net policy for the side to move at the given rank. Returns a length-362
+   * distribution (index y*19+x, pass = 361) over legal moves. */
+  async humanPolicy(args: {
+    modelUrl: string;
+    backend?: KataGoBackendPreference;
+    board: BoardState;
+    previousBoard?: BoardState;
+    previousPreviousBoard?: BoardState;
+    currentPlayer: Player;
+    moveHistory: Move[];
+    komi: number;
+    rules?: GameRules;
+    humanSLProfile: string;
+  }): Promise<{ policy: Float32Array; rootScoreLead: number }> {
+    const id = this.nextId++;
+    const req: KataGoWorkerRequest = {
+      type: 'katago:human_policy',
+      id,
+      modelUrl: args.modelUrl,
+      backend: args.backend,
+      board: args.board,
+      previousBoard: args.previousBoard,
+      previousPreviousBoard: args.previousPreviousBoard,
+      currentPlayer: args.currentPlayer,
+      moveHistory: takeLastMoves(args.moveHistory),
+      komi: args.komi,
+      rules: args.rules,
+      humanSLProfile: args.humanSLProfile,
+    };
+    const promise = new Promise<{ policy: Float32Array; rootScoreLead: number }>((resolve, reject) => {
+      this.pendingHumanPolicy.set(id, { resolve, reject });
+    });
+    try {
+      this.postToWorker(req);
+    } catch (err) {
+      this.pendingHumanPolicy.delete(id);
       throw err;
     }
     return promise;

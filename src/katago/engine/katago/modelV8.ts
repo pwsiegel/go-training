@@ -136,12 +136,24 @@ export type ParsedTrunkBlock =
       postConv: ParsedConv2d;
     };
 
+export type ParsedMetaEncoder = {
+  numInputMetaChannels: number;
+  mul1: ParsedMatMul;
+  bias1: ParsedMatBias;
+  act1: ActivationKind;
+  mul2: ParsedMatMul;
+  bias2: ParsedMatBias;
+  act2: ActivationKind;
+  mul3: ParsedMatMul;
+};
+
 export type ParsedKataGoModelV8 = {
   modelName: string;
   modelVersion: number;
   numInputChannels: number;
   numInputGlobalChannels: number;
   metaEncoderVersion: number;
+  metaEncoder?: ParsedMetaEncoder;
   postProcessParams: {
     tdScoreMultiplier: number;
     scoreMeanMultiplier: number;
@@ -230,6 +242,16 @@ type TfTrunkBlock =
       postConv: TfConv;
     };
 
+type TfMetaEncoder = {
+  mul1: TfMatMul;
+  bias1: TfMatBias;
+  act1: ActivationKind;
+  mul2: TfMatMul;
+  bias2: TfMatBias;
+  act2: ActivationKind;
+  mul3: TfMatMul;
+};
+
 export class KataGoModelV8Tf {
   readonly modelName: string;
   readonly modelVersion: number;
@@ -242,6 +264,7 @@ export class KataGoModelV8Tf {
   private readonly trunkBlocks: TfTrunkBlock[];
   private readonly trunkTipBN: TfBn;
   private readonly trunkTipActivation: ActivationKind;
+  private readonly metaEncoder: TfMetaEncoder | null;
 
   private readonly p1: TfConv;
   private readonly g1: TfConv;
@@ -319,6 +342,17 @@ export class KataGoModelV8Tf {
     this.trunkBlocks = parsed.trunk.blocks.map(toTfBlock);
     this.trunkTipBN = makeBn(parsed.trunk.tipBN);
     this.trunkTipActivation = parsed.trunk.tipActivation;
+    this.metaEncoder = parsed.metaEncoder
+      ? {
+          mul1: makeMatMul(parsed.metaEncoder.mul1),
+          bias1: makeMatBias(parsed.metaEncoder.bias1),
+          act1: parsed.metaEncoder.act1,
+          mul2: makeMatMul(parsed.metaEncoder.mul2),
+          bias2: makeMatBias(parsed.metaEncoder.bias2),
+          act2: parsed.metaEncoder.act2,
+          mul3: makeMatMul(parsed.metaEncoder.mul3),
+        }
+      : null;
 
     this.p1 = makeConv(parsed.policy.p1);
     this.g1 = makeConv(parsed.policy.g1);
@@ -346,7 +380,7 @@ export class KataGoModelV8Tf {
     this.ownership = makeConv(parsed.value.ownership);
   }
 
-  forward(spatial: tf.Tensor4D, global: tf.Tensor2D): {
+  forward(spatial: tf.Tensor4D, global: tf.Tensor2D, meta?: tf.Tensor2D): {
     policy: tf.Tensor4D;
     policyPass: tf.Tensor2D;
     value: tf.Tensor2D;
@@ -354,7 +388,7 @@ export class KataGoModelV8Tf {
     ownership: tf.Tensor4D;
   } {
     return tf.tidy(() => {
-      const trunk = this.forwardTrunk(spatial, global);
+      const trunk = this.forwardTrunk(spatial, global, meta);
 
       // Policy head
       let p1Out = conv2d(trunk, this.p1);
@@ -389,14 +423,14 @@ export class KataGoModelV8Tf {
     });
   }
 
-  forwardPolicyValue(spatial: tf.Tensor4D, global: tf.Tensor2D): {
+  forwardPolicyValue(spatial: tf.Tensor4D, global: tf.Tensor2D, meta?: tf.Tensor2D): {
     policy: tf.Tensor4D;
     policyPass: tf.Tensor2D;
     value: tf.Tensor2D;
     scoreValue: tf.Tensor2D;
   } {
     return tf.tidy(() => {
-      const trunk = this.forwardTrunk(spatial, global);
+      const trunk = this.forwardTrunk(spatial, global, meta);
 
       let p1Out = conv2d(trunk, this.p1);
       const g1Out = conv2d(trunk, this.g1);
@@ -429,13 +463,14 @@ export class KataGoModelV8Tf {
 
   forwardValueOnly(
     spatial: tf.Tensor4D,
-    global: tf.Tensor2D
+    global: tf.Tensor2D,
+    meta?: tf.Tensor2D
   ): {
     value: tf.Tensor2D;
     scoreValue: tf.Tensor2D;
   } {
     return tf.tidy(() => {
-      const trunk = this.forwardTrunk(spatial, global);
+      const trunk = this.forwardTrunk(spatial, global, meta);
       const v1Out = conv2d(trunk, this.v1);
       const v1Out2 = bnAct(v1Out, this.v1BN, this.v1Activation);
       const v1Mean = poolRowsValueHead(v1Out2);
@@ -453,10 +488,27 @@ export class KataGoModelV8Tf {
     });
   }
 
-  private forwardTrunk(spatial: tf.Tensor4D, global: tf.Tensor2D): tf.Tensor4D {
+  get hasMetaEncoder(): boolean {
+    return this.metaEncoder !== null;
+  }
+
+  private forwardMetaEncoder(meta: tf.Tensor2D, enc: TfMetaEncoder): tf.Tensor2D {
+    let h = tf.add(tf.matMul(meta, enc.mul1.w), enc.bias1.b) as tf.Tensor2D;
+    h = applyActivation2D(h, enc.act1);
+    h = tf.add(tf.matMul(h, enc.mul2.w), enc.bias2.b) as tf.Tensor2D;
+    h = applyActivation2D(h, enc.act2);
+    // mul3 has no bias; the 0.5 output scale is folded into its weights.
+    return tf.matMul(h, enc.mul3.w) as tf.Tensor2D;
+  }
+
+  private forwardTrunk(spatial: tf.Tensor4D, global: tf.Tensor2D, meta?: tf.Tensor2D): tf.Tensor4D {
     let trunk = conv2d(spatial, this.trunkConv1);
     const ginput = tf.matMul(global, this.trunkGInput.w) as tf.Tensor2D;
     trunk = trunk.add(ginput.reshape([ginput.shape[0], 1, 1, ginput.shape[1]])) as tf.Tensor4D;
+    if (this.metaEncoder && meta) {
+      const metaBias = this.forwardMetaEncoder(meta, this.metaEncoder);
+      trunk = trunk.add(metaBias.reshape([metaBias.shape[0], 1, 1, metaBias.shape[1]])) as tf.Tensor4D;
+    }
     trunk = this.applyBlockStack(trunk, this.trunkBlocks);
     return bnAct(trunk, this.trunkTipBN, this.trunkTipActivation);
   }
@@ -534,6 +586,15 @@ export class KataGoModelV8Tf {
       this.sv3.w,
       this.sv3Bias.b,
       this.ownership.filter,
+      ...(this.metaEncoder
+        ? [
+            this.metaEncoder.mul1.w,
+            this.metaEncoder.bias1.b,
+            this.metaEncoder.mul2.w,
+            this.metaEncoder.bias2.b,
+            this.metaEncoder.mul3.w,
+          ]
+        : []),
     ];
 
     const pushBlockTensors = (block: TfTrunkBlock): void => {

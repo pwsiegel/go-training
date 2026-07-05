@@ -6,7 +6,29 @@ import {
   parseMatBias,
   parseMatMul,
 } from './binModelParser';
-import type { ParsedKataGoModelV8 } from './modelV8';
+import type { ParsedKataGoModelV8, ParsedMetaEncoder } from './modelV8';
+
+// Human-SL metadata encoder (metaEncoderVersion 1). Serialized inside the trunk,
+// right after the global-input matmul: name, 192, then a 3-layer MLP
+// (mul1[192,384], bias1, act1, mul2[384,384], bias2, act2, mul3[384,384]) with
+// no final bias. The index-86 mask and 0.5 output scale are folded into the
+// exported weights, so no extra handling is needed at inference.
+function parseMetaEncoder(p: KataGoBinModelParser, modelVersion: number): ParsedMetaEncoder {
+  p.readToken(); // encoder name
+  const numInputMetaChannels = p.readInt();
+  if (numInputMetaChannels !== 192) {
+    throw new Error(`Unexpected numInputMetaChannels ${numInputMetaChannels} (expected 192)`);
+  }
+  const mul1 = parseMatMul(p);
+  const bias1 = parseMatBias(p);
+  const act1 = parseActivationKind(p, modelVersion);
+  const mul2 = parseMatMul(p);
+  const bias2 = parseMatBias(p);
+  const act2 = parseActivationKind(p, modelVersion);
+  const mul3 = parseMatMul(p);
+  if (mul1.inChannels !== 192) throw new Error(`meta mul1.inChannels ${mul1.inChannels} != 192`);
+  return { numInputMetaChannels, mul1, bias1, act1, mul2, bias2, act2, mul3 };
+}
 
 export function parseKataGoModelV8(data: Uint8Array): ParsedKataGoModelV8 {
   const p = new KataGoBinModelParser(data);
@@ -47,7 +69,7 @@ export function parseKataGoModelV8(data: Uint8Array): ParsedKataGoModelV8 {
   if (modelVersion >= 15) {
     for (let i = 0; i < 7; i++) p.readInt(); // Unused model-level params in KataGo v15+.
   }
-  if (metaEncoderVersion !== 0) {
+  if (metaEncoderVersion !== 0 && metaEncoderVersion !== 1) {
     throw new Error(`Unsupported metaEncoderVersion ${metaEncoderVersion}`);
   }
 
@@ -65,6 +87,7 @@ export function parseKataGoModelV8(data: Uint8Array): ParsedKataGoModelV8 {
 
   const conv1 = parseConv2d(p);
   const ginput = parseMatMul(p);
+  const metaEncoder = metaEncoderVersion !== 0 ? parseMetaEncoder(p, modelVersion) : undefined;
 
   function parseResidualBlock(): ParsedKataGoModelV8['trunk']['blocks'][number] {
     const kindTok = p.readToken();
@@ -155,6 +178,7 @@ export function parseKataGoModelV8(data: Uint8Array): ParsedKataGoModelV8 {
     numInputChannels,
     numInputGlobalChannels,
     metaEncoderVersion,
+    metaEncoder,
     postProcessParams,
     policyOutChannels: p2.outChannels,
     scoreValueChannels: sv3.outChannels,
