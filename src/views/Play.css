@@ -123,3 +123,42 @@
   background: var(--accent);
   opacity: 0.92;
 }
+
+/* Engine picker (dev only) — mirrors the review model rows */
+.play-engines {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.play-engine {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.play-engine.active {
+  border-color: var(--accent, var(--text));
+  background: var(--bg-muted);
+}
+
+.play-engine-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
+}
+
+.play-engine-name {
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.play-engine-sub {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}

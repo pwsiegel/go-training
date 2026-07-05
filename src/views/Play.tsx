@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Board, type Annotation } from '../Board';
 import { playMove, replay, type PlayError } from '../goRules';
 import type { Color } from '../types';
-import { genmove } from '../data/katago';
+import { genmoveBrowser } from '../katago/webEngine';
+import { genmove, katagoBackendAvailable } from '../data/katago';
 import { saveGame } from '../data/games';
 import { toSgf } from '../sgf';
 import { useAuth } from '../auth';
@@ -26,13 +27,17 @@ const RANKS: { value: string; label: string }[] = [
   ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => ({ value: `rank_${d}d`, label: `${d} dan` })),
 ];
 
-const OFFLINE_MSG = 'KataGo is offline — is `make api-katago` running?';
+const ENGINES: { id: 'browser' | 'local'; name: string; runtime: string }[] = [
+  { id: 'browser', name: 'b18c384nbt-humanv0', runtime: 'WebGPU' },
+  { id: 'local', name: 'b18c384nbt-humanv0', runtime: 'Metal (native)' },
+];
+
+const OFFLINE_MSG = 'Could not run KataGo — your browser may not support WebGPU, or the model failed to load.';
 
 /** Play a full game against KataGo's human-like net at a chosen rank. The
- * opponent's move is sampled from KataGo's human policy (see the /genmove
- * backend), so it plays like a human of that rank. Local-dev only — reachable
- * when the backend runs with the analysis engine (`make api-katago`). Ending a
- * game offers to save it (to Firestore) and open the review page. */
+ * opponent's move is sampled from the human net's rank-conditioned policy,
+ * running entirely in the browser (WebGPU) — no backend. Ending a game offers
+ * to save it (to Firestore) and open the review page. */
 export function Play() {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
@@ -41,6 +46,8 @@ export function Play() {
   const [colorChoice, setColorChoice] = useState<ColorChoice>('B');
   const [rank, setRank] = useState('rank_9k');
   const [temperature, setTemperature] = useState(1.0);
+  const [engine, setEngine] = useState<'browser' | 'local'>('browser');
+  const [localAvailable, setLocalAvailable] = useState(false);
 
   const [myColor, setMyColor] = useState<Color>('B');
   const [history, setHistory] = useState<Move[]>([]);
@@ -67,28 +74,47 @@ export function Play() {
     return () => clearTimeout(t);
   }, [error]);
 
+  // Offer the native backend as an engine choice only when it's reachable (dev).
+  useEffect(() => {
+    let active = true;
+    katagoBackendAvailable().then((ok) => { if (active) setLocalAvailable(ok); });
+    return () => { active = false; };
+  }, []);
+
   // Opponent turn: fetch a human-net move and apply it. Records the strong-net
   // estimate of the position (after your move) for the review trajectory. Every
   // move KataGo returns is legal, so playMove here never rejects it.
   useEffect(() => {
     if (phase !== 'playing' || nextColor === myColor) return;
     const at = history.length;
-    const ctrl = new AbortController();
     let active = true;
-    genmove({ initialStones: [], moves: history, initialPlayer: 'B', rank, temperature, signal: ctrl.signal })
+    const ctrl = new AbortController();
+    const gen = engine === 'local'
+      ? genmove({ initialStones: [], moves: history, initialPlayer: 'B', rank, temperature, signal: ctrl.signal })
+          .then((r) => ({ move: r.move, scoreLead: r.root.score_lead }))
+      : genmoveBrowser({
+          stones,
+          previousStones: replay(history.slice(0, -1)).stones,
+          moves: history,
+          toPlay: nextColor,
+          rank,
+          temperature,
+          komi: 7.5,
+          koPoint,
+        });
+    gen
       .then((res) => {
         if (!active) return;
-        const mv = res.move;
-        setScore(res.root.score_lead);
-        setScoreAt((prev) => ({ ...prev, [at]: res.root.score_lead }));
+        setScore(res.scoreLead);
+        setScoreAt((prev) => ({ ...prev, [at]: res.scoreLead }));
         setOffline(false);
-        if (mv) setHistory((h) => [...h, { color: nextColor, x: mv.x, y: mv.y }]);
+        if (res.move) setHistory((h) => [...h, { color: nextColor, x: res.move!.x, y: res.move!.y }]);
       })
       .catch(() => {
         if (active && !ctrl.signal.aborted) setOffline(true);
       });
     return () => { active = false; ctrl.abort(); };
-  }, [phase, nextColor, myColor, history, rank, temperature, retry]);
+  }, [phase, nextColor, myColor, history, stones, koPoint, rank, temperature, engine, retry]);
 
   const start = () => {
     const resolved: Color = colorChoice === 'random'
@@ -162,7 +188,7 @@ export function Play() {
       <div className="play-page"><div className="play-setup">
         <h1>Play against KataGo</h1>
         <p className="play-setup-sub">
-          A human-like opponent at the rank you choose. Runs on your local KataGo.
+          A human-like opponent at the rank you choose. Runs entirely in your browser.
         </p>
 
         <div className="play-field">
@@ -177,6 +203,21 @@ export function Play() {
               >
                 {c === 'B' ? 'Black' : c === 'W' ? 'White' : 'Random'}
               </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="play-field">
+          <span>Model</span>
+          <div className="play-engines">
+            {ENGINES.filter((e) => e.id === 'browser' || localAvailable).map((e) => (
+              <label key={e.id} className={engine === e.id ? 'play-engine active' : 'play-engine'}>
+                <input type="radio" name="play-engine" checked={engine === e.id} onChange={() => setEngine(e.id)} />
+                <span className="play-engine-main">
+                  <span className="play-engine-name">{e.name}</span>
+                  <span className="play-engine-sub">{e.runtime}</span>
+                </span>
+              </label>
             ))}
           </div>
         </div>
@@ -218,7 +259,7 @@ export function Play() {
           {error
             ? <span className="play-error">{error}</span>
             : offline
-              ? <span className="play-error">{OFFLINE_MSG}</span>
+              ? <span className="play-error">{engine === 'local' ? 'KataGo backend offline — is `make api` running?' : OFFLINE_MSG}</span>
               : <span>{statusText}</span>}
         </div>
         <div className="play-status">

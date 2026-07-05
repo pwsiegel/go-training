@@ -159,10 +159,43 @@ export interface KataGoEvalBatchResponse {
   error?: string;
 }
 
-export type KataGoWorkerRequest = KataGoInitRequest | KataGoAnalyzeRequest | KataGoEvalRequest | KataGoEvalBatchRequest;
+export interface KataGoHumanPolicyRequest {
+  type: 'katago:human_policy';
+  id: number;
+  modelUrl: string;
+  backend?: KataGoBackendPreference;
+  board: BoardState;
+  previousBoard?: BoardState;
+  previousPreviousBoard?: BoardState;
+  currentPlayer: Player;
+  moveHistory: Move[];
+  komi: number;
+  rules?: GameRules;
+  humanSLProfile: string; // e.g. "rank_9k" — the human net's meta-encoder profile
+}
+
+export interface KataGoHumanPolicyResponse {
+  type: 'katago:human_policy_result';
+  id: number;
+  ok: boolean;
+  backend?: string;
+  modelName?: string;
+  // Side-to-move human policy, softmaxed over legal moves + pass. Index y*19+x, pass = 361.
+  policy?: Float32Array;
+  rootScoreLead?: number; // human net's score estimate, Black perspective
+  error?: string;
+}
+
+export type KataGoWorkerRequest =
+  | KataGoInitRequest
+  | KataGoAnalyzeRequest
+  | KataGoEvalRequest
+  | KataGoEvalBatchRequest
+  | KataGoHumanPolicyRequest;
 export type KataGoWorkerResponse =
   | KataGoInitResponse
   | KataGoAnalyzeUpdate
   | KataGoAnalyzeResponse
   | KataGoEvalResponse
-  | KataGoEvalBatchResponse;
+  | KataGoEvalBatchResponse
+  | KataGoHumanPolicyResponse;

@@ -36,6 +36,8 @@ import {
   type StoneColor,
 } from './fastBoard';
 import { postprocessKataGoV8 } from './evalV8';
+import { fillPositionInputsV7 } from './positionFeatures';
+import { buildSGFMetadataV1 } from './sgfMetadata';
 
 let model: KataGoModelV8Tf | null = null;
 let loadedModelName: string | undefined;
@@ -517,6 +519,87 @@ async function handleMessage(msg: KataGoWorkerRequest): Promise<void> {
     return;
   }
 
+  if (msg.type === 'katago:human_policy') {
+    await ensureModel(msg.modelUrl, msg.backend);
+    if (!model) throw new Error('Model not loaded');
+    if (!model.hasMetaEncoder) throw new Error('Model has no metadata encoder — not a human-SL net');
+    ensureBoardSizeForWorker(msg.board.length);
+    const boardSize = BOARD_SIZE;
+    const rules: GameRules = msg.rules === 'chinese' ? 'chinese' : msg.rules === 'korean' ? 'korean' : 'japanese';
+
+    // KataGo evaluates the human net's root with pre-root history ignored
+    // (analysis-engine default) — feeding move history diverges from native.
+    fillPositionInputsV7({
+      board: msg.board,
+      previousBoard: msg.previousBoard,
+      previousPreviousBoard: msg.previousPreviousBoard,
+      currentPlayer: msg.currentPlayer,
+      moveHistory: msg.moveHistory,
+      komi: msg.komi,
+      rules,
+      conservativePassAndIsRoot: true,
+      maxHistory: 0,
+      outSpatial: evalSpatialV7,
+      outGlobal: evalGlobalV7,
+    });
+
+    const spatial = tf.tensor4d(evalSpatialV7, [1, boardSize, boardSize, 22]);
+    const global = tf.tensor2d(evalGlobalV7, [1, 19]);
+    const meta = tf.tensor2d(buildSGFMetadataV1(msg.humanSLProfile), [1, 192]);
+    const out = model.forwardPolicyValue(spatial, global, meta);
+    const [boardLogits, passArr, valueArr, scoreArr] = await Promise.all([
+      out.policy.slice([0, 0, 0, 0], [1, boardSize, boardSize, 1]).reshape([boardSize * boardSize]).data(),
+      out.policyPass.slice([0, 0], [1, 1]).reshape([1]).data(),
+      out.value.data(),
+      out.scoreValue.data(),
+    ]);
+    const passLogit = passArr[0]!;
+    spatial.dispose();
+    global.dispose();
+    meta.dispose();
+    out.policy.dispose();
+    out.policyPass.dispose();
+    out.value.dispose();
+    out.scoreValue.dispose();
+
+    const evaled = postprocessKataGoV8({
+      nextPlayer: msg.currentPlayer,
+      valueLogits: valueArr,
+      scoreValue: scoreArr,
+      postProcessParams: model.postProcessParams,
+    });
+
+    // Softmax over legal (empty) board points + pass; occupied points masked out.
+    const n = boardSize * boardSize;
+    const policy = new Float32Array(n + 1);
+    let maxL = passLogit;
+    for (let i = 0; i < n; i++) {
+      const x = i % boardSize;
+      const y = (i / boardSize) | 0;
+      if (msg.board[y]?.[x]) { policy[i] = -Infinity; continue; }
+      policy[i] = boardLogits[i]!;
+      if (policy[i] > maxL) maxL = policy[i];
+    }
+    policy[n] = passLogit;
+    let sum = 0;
+    for (let i = 0; i <= n; i++) { const e = Math.exp(policy[i] - maxL); policy[i] = e; sum += e; }
+    for (let i = 0; i <= n; i++) policy[i] /= sum;
+
+    post(
+      {
+        type: 'katago:human_policy_result',
+        id: msg.id,
+        ok: true,
+        backend: tf.getBackend(),
+        modelName: loadedModelName,
+        policy,
+        rootScoreLead: evaled.blackScoreLead,
+      },
+      [policy.buffer],
+    );
+    return;
+  }
+
   if (msg.type === 'katago:eval_batch') {
     await ensureModel(msg.modelUrl, msg.backend);
     if (!model) throw new Error('Model not loaded');
@@ -894,6 +977,15 @@ self.onmessage = (ev: MessageEvent<KataGoWorkerRequest>) => {
       if (msg.type === 'katago:eval') {
         post({
           type: 'katago:eval_result',
+          id: msg.id,
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return;
+      }
+      if (msg.type === 'katago:human_policy') {
+        post({
+          type: 'katago:human_policy_result',
           id: msg.id,
           ok: false,
           error: err instanceof Error ? err.message : String(err),
