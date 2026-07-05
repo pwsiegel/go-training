@@ -11,6 +11,18 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   base: process.env.VITE_BASE ?? '/',
   plugins: [react()],
+  // The KataGo engine runs in a module worker that imports TensorFlow.js.
+  // Bundle the worker as ESM and pre-bundle tfjs so the worker doesn't stall
+  // loading a long unbundled ESM chain in dev.
+  worker: { format: 'es' },
+  optimizeDeps: {
+    include: [
+      '@tensorflow/tfjs',
+      '@tensorflow/tfjs-backend-webgpu',
+      '@tensorflow/tfjs-backend-wasm',
+      'pako',
+    ],
+  },
   server: {
     // Fail loudly if 5173 is taken rather than sliding to 5174 (which breaks
     // Firebase Storage CORS, since only :5173 is in the bucket allowlist).

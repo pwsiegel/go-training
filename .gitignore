@@ -4,3 +4,8 @@ dist/
 .env
 .env.local
 .env.*.local
+
+# Generated KataGo assets (rebuilt by `npm run build:worker`) + local model nets
+public/katago-worker.js
+public/tfjs/
+public/models/*.bin.gz

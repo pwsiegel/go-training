@@ -27,6 +27,43 @@
   font-size: 0.9rem;
 }
 
+.gr-analyze-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.gr-net-select {
+  padding: 0.3rem 0.5rem;
+  font: inherit;
+  font-size: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.gr-analyze-btn {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.gr-analyze-btn.active {
+  background: var(--accent, var(--text));
+  border-color: var(--accent, var(--text));
+  color: var(--bg);
+}
+
+.gr-analyze-err {
+  color: var(--error);
+}
+
 /* --- big score graph --- */
 
 .gr-graph {
