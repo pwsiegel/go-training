@@ -12,13 +12,24 @@
 .sidebar-links { display: flex; flex-direction: column; gap: 0.15rem; flex: 1 1 auto; }
 .sidebar-link {
   padding: 0.5rem 0.75rem; border-radius: 6px; color: var(--text-muted);
-  text-decoration: none; font-size: 0.95rem;
+  text-decoration: none; font-size: 1.05rem;
 }
 .sidebar-link:hover { background: var(--bg-subtle); color: var(--text); }
 .sidebar-link.active { background: var(--bg-muted); color: var(--text); }
 
+.sidebar-group { display: flex; flex-direction: column; gap: 0.15rem; margin: 0.15rem 0; }
+.sidebar-group-label {
+  padding: 0.5rem 0.75rem; font-size: 1.05rem; color: var(--text-muted);
+}
+.sidebar-sublink { padding-left: 1.5rem; font-size: 0.85rem; }
+
 .sidebar-foot { display: flex; flex-direction: column; gap: 0.5rem; border-top: 1px solid var(--border); padding-top: 0.75rem; }
-.sidebar-name { font-size: 0.85rem; color: var(--text-faint); padding: 0 0.75rem; }
+.sidebar-name {
+  font: inherit; font-size: 0.85rem; color: var(--text-faint);
+  padding: 0.3rem 0.75rem; background: none; border: none;
+  text-align: left; border-radius: 6px; cursor: pointer;
+}
+.sidebar-name:hover { color: var(--text); background: var(--bg-subtle); }
 .sidebar-btn {
   padding: 0.4rem 0.75rem; border: 1px solid var(--border); background: var(--bg-subtle);
   color: var(--text-secondary); border-radius: 6px; cursor: pointer; font: inherit;
