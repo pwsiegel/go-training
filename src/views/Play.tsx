@@ -6,14 +6,17 @@ import type { Color } from '../types';
 import { genmoveBrowser } from '../katago/webEngine';
 import { genmove, katagoBackendAvailable } from '../data/katago';
 import { saveGame } from '../data/games';
+import type { GameDoc } from '../data/model';
 import { toSgf } from '../sgf';
 import { useAuth } from '../auth';
+import { ScoreGraph } from '../ScoreGraph';
 import '../PlayView.css';
 import './Play.css';
 
 type Move = { color: Color; x: number; y: number };
 type Phase = 'setup' | 'playing' | 'ended';
 type ColorChoice = Color | 'random';
+type ScoreMode = 'show' | 'hide' | 'alert';
 
 const ERROR_MESSAGES: Record<PlayError, string> = {
   occupied: 'Occupied.',
@@ -34,10 +37,15 @@ const ENGINES: { id: 'browser' | 'local'; name: string; runtime: string }[] = [
 
 const OFFLINE_MSG = 'Could not run KataGo — your browser may not support WebGPU, or the model failed to load.';
 
+// The ~100MB human net loads on the first browser move; show "Model loading"
+// until then. Module-level so it survives remounts (the worker caches the net).
+let humanNetWarmed = false;
+
 /** Play a full game against KataGo's human-like net at a chosen rank. The
  * opponent's move is sampled from the human net's rank-conditioned policy,
- * running entirely in the browser (WebGPU) — no backend. Ending a game offers
- * to save it (to Firestore) and open the review page. */
+ * running entirely in the browser (WebGPU) — no backend. You can rewind and
+ * resume from an earlier position, tune the score display, and change any
+ * setting mid-game. Ending a game offers to review and/or save it. */
 export function Play() {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
@@ -48,24 +56,63 @@ export function Play() {
   const [temperature, setTemperature] = useState(1.0);
   const [engine, setEngine] = useState<'browser' | 'local'>('browser');
   const [localAvailable, setLocalAvailable] = useState(false);
+  const [scoreMode, setScoreMode] = useState<ScoreMode>('show');
+  const [alertThreshold, setAlertThreshold] = useState(5);
+  const [moveDelay, setMoveDelay] = useState(1);   // seconds of minimum "think time"
+  const [warmed, setWarmed] = useState(humanNetWarmed);
 
   const [myColor, setMyColor] = useState<Color>('B');
   const [history, setHistory] = useState<Move[]>([]);
-  const [score, setScore] = useState<number | null>(null);           // latest, Black's perspective
+  const [mainline, setMainline] = useState<Move[]>([]);               // moves as originally played, for replay
+  const [viewing, setViewing] = useState<number | null>(null);        // null = live end
   const [scoreAt, setScoreAt] = useState<Record<string, number>>({}); // moveCount -> lead (Black)
-  const [error, setError] = useState<string | null>(null);           // transient (illegal move)
-  const [offline, setOffline] = useState(false);                     // engine unreachable
-  const [retry, setRetry] = useState(0);                             // bump to re-request after offline
+  const [alerted, setAlerted] = useState(false);                      // graph revealed after first alert
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);            // transient (illegal move)
+  const [offline, setOffline] = useState(false);                      // engine unreachable
+  const [retry, setRetry] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const { stones, koPoint } = useMemo(() => replay(history), [history]);
-  const nextColor: Color = history.length % 2 === 0 ? 'B' : 'W';
-  const opponentTurn = phase === 'playing' && nextColor !== myColor;
+  const atLive = viewing === null;
+  const viewIndex = viewing ?? history.length;
+  const viewMoves = useMemo(() => (atLive ? history : history.slice(0, viewing!)), [atLive, history, viewing]);
+  const { stones, koPoint } = useMemo(() => replay(viewMoves), [viewMoves]);
+  const playPoints = useMemo(
+    () => Object.entries(scoreAt).map(([m, v]) => ({ move: Number(m), lead: v })).sort((a, b) => a.move - b.move),
+    [scoreAt],
+  );
+  // Most recent recorded estimate at or before move n (Black lead).
+  const scoreAtMove = (n: number): number | null => {
+    let best: number | null = null;
+    let bestMove = -1;
+    for (const [mc, v] of Object.entries(scoreAt)) {
+      const m = Number(mc);
+      if (m <= n && m > bestMove) { bestMove = m; best = v; }
+    }
+    return best;
+  };
+  const viewScore = scoreAtMove(viewIndex);
+  // On the original line (a prefix of the recorded mainline): the AI replays its
+  // recorded moves until you play something that diverges.
+  const onMainline = mainline.length > history.length
+    && history.every((m, i) => m.x === mainline[i].x && m.y === mainline[i].y && m.color === mainline[i].color);
+  const liveNextColor: Color = history.length % 2 === 0 ? 'B' : 'W';
+  const opponentTurn = phase === 'playing' && atLive && liveNextColor !== myColor;
   const thinking = opponentTurn && !offline;
-  const myTurn = phase === 'playing' && nextColor === myColor;
-  const last = history.length ? history[history.length - 1] : null;
+  const myTurn = phase === 'playing' && atLive && liveNextColor === myColor;
+  const last = viewMoves.length ? viewMoves[viewMoves.length - 1] : null;
   const annotations: Annotation[] = last ? [{ kind: 'triangle', x: last.x, y: last.y }] : [];
+
+  // Score from your perspective at the live position (positive = you're ahead).
+  const liveScore = scoreAtMove(history.length);
+  const userLead = liveScore === null ? null : (myColor === 'B' ? liveScore : -liveScore);
+  const behindBy = userLead === null ? null : -userLead;
+  const alerting = scoreMode === 'alert' && behindBy !== null && behindBy >= alertThreshold;
+  // Reveal the graph the first time the alert fires; keep it up afterwards.
+  if (alerting && !alerted) setAlerted(true);
+  const showGraph = scoreMode === 'alert' && alerted;
 
   // Auto-clear transient (illegal-move) errors.
   useEffect(() => {
@@ -81,14 +128,40 @@ export function Play() {
     return () => { active = false; };
   }, []);
 
-  // Opponent turn: fetch a human-net move and apply it. Records the strong-net
-  // estimate of the position (after your move) for the review trajectory. Every
-  // move KataGo returns is legal, so playMove here never rejects it.
+  // Left/right arrows scrub through moves (skip when typing in a field).
   useEffect(() => {
-    if (phase !== 'playing' || nextColor === myColor) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (phase === 'setup') return;
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+      if (e.key === 'ArrowLeft') setViewing((v) => Math.max(0, (v ?? history.length) - 1));
+      else if (e.key === 'ArrowRight') setViewing((v) => { const n = (v ?? history.length) + 1; return n >= history.length ? null : n; });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [phase, history.length]);
+
+  // Opponent turn (only at the live end): fetch a human-net move + score and
+  // apply it. Every move KataGo returns is legal, so playMove never rejects it.
+  useEffect(() => {
+    if (phase !== 'playing' || !atLive || liveNextColor === myColor) return;
     const at = history.length;
     let active = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    // Re-walking the original line: replay the recorded AI move (after the same
+    // delay) instead of sampling a fresh one.
+    if (onMainline) {
+      timer = setTimeout(() => {
+        if (!active) return;
+        setHistory(mainline.slice(0, at + 1));
+        setOffline(false);
+      }, moveDelay * 1000);
+      return () => { active = false; if (timer) clearTimeout(timer); };
+    }
+
     const ctrl = new AbortController();
+    const startedAt = Date.now();
     const gen = engine === 'local'
       ? genmove({ initialStones: [], moves: history, initialPlayer: 'B', rank, temperature, signal: ctrl.signal })
           .then((r) => ({ move: r.move, scoreLead: r.root.score_lead }))
@@ -96,7 +169,7 @@ export function Play() {
           stones,
           previousStones: replay(history.slice(0, -1)).stones,
           moves: history,
-          toPlay: nextColor,
+          toPlay: liveNextColor,
           rank,
           temperature,
           komi: 7.5,
@@ -105,16 +178,25 @@ export function Play() {
     gen
       .then((res) => {
         if (!active) return;
-        setScore(res.scoreLead);
-        setScoreAt((prev) => ({ ...prev, [at]: res.scoreLead }));
-        setOffline(false);
-        if (res.move) setHistory((h) => [...h, { color: nextColor, x: res.move!.x, y: res.move!.y }]);
+        // Minimum "think time" so the reply doesn't snap in instantly.
+        const wait = Math.max(0, moveDelay * 1000 - (Date.now() - startedAt));
+        timer = setTimeout(() => {
+          if (!active) return;
+          if (engine === 'browser' && !humanNetWarmed) { humanNetWarmed = true; setWarmed(true); }
+          setScoreAt((prev) => ({ ...prev, [at]: res.scoreLead }));
+          setOffline(false);
+          if (res.move) {
+            const nh = [...history, { color: liveNextColor, x: res.move!.x, y: res.move!.y }];
+            setHistory(nh);
+            setMainline(nh);   // a fresh reply extends / becomes the mainline
+          }
+        }, wait);
       })
       .catch(() => {
         if (active && !ctrl.signal.aborted) setOffline(true);
       });
-    return () => { active = false; ctrl.abort(); };
-  }, [phase, nextColor, myColor, history, stones, koPoint, rank, temperature, engine, retry]);
+    return () => { active = false; ctrl.abort(); if (timer) clearTimeout(timer); };
+  }, [phase, atLive, liveNextColor, myColor, history, mainline, onMainline, stones, koPoint, rank, temperature, engine, moveDelay, retry]);
 
   const start = () => {
     const resolved: Color = colorChoice === 'random'
@@ -122,66 +204,184 @@ export function Play() {
       : colorChoice;
     setMyColor(resolved);
     setHistory([]);
-    setScore(null);
+    setMainline([]);
+    setViewing(null);
     setScoreAt({});
+    setAlerted(false);
     setError(null);
     setOffline(false);
     setSaveError(null);
+    setSaved(false);
+    setSettingsOpen(false);
     setPhase('playing');
   };
 
   const handleCellClick = (x: number, y: number) => {
     if (!myTurn) return;
-    const r = playMove(stones, nextColor, x, y, koPoint);
+    const r = playMove(stones, myColor, x, y, koPoint);
     if (!r.ok) { setError(ERROR_MESSAGES[r.error]); return; }
-    setHistory((h) => [...h, { color: nextColor, x, y }]);
+    const at = history.length;
+    const orig = onMainline ? mainline[at] : undefined;
+    if (orig && orig.x === x && orig.y === y && orig.color === myColor) {
+      setHistory(mainline.slice(0, at + 1));   // replaying your original move — stay on the line
+    } else {
+      const nh = [...history, { color: myColor, x, y }];
+      setHistory(nh);
+      setMainline(nh);   // you diverged — this becomes the new mainline
+      setScoreAt((s) => Object.fromEntries(Object.entries(s).filter(([mc]) => Number(mc) <= at)));
+    }
   };
 
-  // Undo the last full exchange (your move + KataGo's reply) so it's your turn.
-  const undo = () => {
-    if (!myTurn || history.length < 2) return;
-    setHistory((h) => h.slice(0, -2));
+  // Rewind / advance the viewed position (null = live end).
+  const seek = (n: number) => setViewing(n >= history.length ? null : Math.max(0, n));
+
+  // Truncate the game to the rewound position and resume live play from there.
+  const continueFromHere = () => {
+    if (viewing === null) return;
+    setMainline(history);          // keep the current line so the AI replays it
+    setHistory(history.slice(0, viewing));
+    // scoreAt is kept — the recorded future scores are reused while re-walking.
+    setAlerted(false);             // hide the alert graph until you fall behind again
+    setViewing(null);
+    setSaved(false);
+    setPhase('playing');
   };
 
-  const reviewGame = async () => {
-    if (!user || saving) return;
+  // The completed game as a GameDoc (sans id) — used both to persist and to hand
+  // straight to the review UI without saving.
+  const buildGameDoc = (): Omit<GameDoc, 'id'> => {
+    const rankLabel = RANKS.find((r) => r.value === rank)?.label ?? rank;
+    const rankShort = rank.replace('rank_', '');   // "9k" / "1d"
+    const myName = profile?.displayName || 'Me';
+    const oppName = 'Human-like KataGo';
+    const black = myColor === 'B';
+    const createdAt = Date.now();
+    const sgf = toSgf(history, {
+      komi: 7.5,
+      rules: 'Chinese',
+      playerBlack: black ? myName : oppName,
+      playerWhite: black ? oppName : myName,
+      rankBlack: black ? '?' : rankShort,
+      rankWhite: black ? rankShort : '?',
+      date: new Date(createdAt).toISOString().slice(0, 10),
+    });
+    return {
+      ownerUid: user?.uid ?? '',
+      source: 'go-training',
+      createdAt,
+      myColor,
+      rank,
+      rankLabel,
+      temperature,
+      sgf,
+      scoreAt,
+      moveCount: history.length,
+      finalScore: scoreAtMove(history.length),
+    };
+  };
+
+  const save = async () => {
+    if (!user || saving || saved) return;
     setSaving(true);
     setSaveError(null);
     try {
-      const rankLabel = RANKS.find((r) => r.value === rank)?.label ?? rank;
-      const rankShort = rank.replace('rank_', '');   // "9k" / "1d"
-      const myName = profile?.displayName || 'Me';
-      const oppName = 'Human-like KataGo';
-      const black = myColor === 'B';
-      const createdAt = Date.now();
-      const sgf = toSgf(history, {
-        komi: 7.5,
-        rules: 'Chinese',
-        playerBlack: black ? myName : oppName,
-        playerWhite: black ? oppName : myName,
-        rankBlack: black ? '?' : rankShort,
-        rankWhite: black ? rankShort : '?',
-        date: new Date(createdAt).toISOString().slice(0, 10),
-      });
-      const saved = await saveGame({
-        ownerUid: user.uid,
-        source: 'go-training',
-        createdAt,
-        myColor,
-        rank,
-        rankLabel,
-        temperature,
-        sgf,
-        scoreAt,
-        moveCount: history.length,
-        finalScore: score,
-      });
-      navigate(`/review/${saved.id}`);
+      await saveGame(buildGameDoc());
+      setSaved(true);
     } catch {
-      setSaving(false);
       setSaveError('Could not save the game — is the games rule deployed? (make firebase-rules)');
+    } finally {
+      setSaving(false);
     }
   };
+
+  // Review the just-played game in the shared review UI without persisting it.
+  const review = () => {
+    navigate('/review/preview', { state: { game: { ...buildGameDoc(), id: 'preview' } satisfies GameDoc } });
+  };
+
+  // The settings form, reused in the setup screen and the in-game drawer.
+  const renderSettings = (inGame: boolean) => (
+    <>
+      <div className="play-field">
+        <span>Your color</span>
+        <div className="play-seg" role="group" aria-label="Your color">
+          {(inGame ? (['B', 'W'] as ColorChoice[]) : (['B', 'W', 'random'] as ColorChoice[])).map((c) => (
+            <button
+              key={c}
+              type="button"
+              className={(inGame ? myColor : colorChoice) === c ? 'active' : ''}
+              onClick={() => (inGame ? setMyColor(c as Color) : setColorChoice(c))}
+            >
+              {c === 'B' ? 'Black' : c === 'W' ? 'White' : 'Random'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="play-field">
+        <span>Model</span>
+        <div className="play-engines">
+          {ENGINES.filter((e) => e.id === 'browser' || localAvailable).map((e) => (
+            <label key={e.id} className={engine === e.id ? 'play-engine active' : 'play-engine'}>
+              <input type="radio" name="play-engine" checked={engine === e.id} onChange={() => setEngine(e.id)} />
+              <span className="play-engine-main">
+                <span className="play-engine-name">{e.name}</span>
+                <span className="play-engine-sub">{e.runtime}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <label className="play-field">
+        <span>Opponent rank</span>
+        <select value={rank} onChange={(e) => setRank(e.target.value)}>
+          {RANKS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+        </select>
+      </label>
+
+      <label className="play-field">
+        <span>Sharpness <small>{temperature.toFixed(2)}</small></span>
+        <input
+          type="range" min={0.2} max={1.0} step={0.05}
+          value={temperature}
+          onChange={(e) => setTemperature(Number(e.target.value))}
+        />
+        <small className="play-hint">1.0 plays like the rank; lower is sharper and stronger.</small>
+      </label>
+
+      <label className="play-field">
+        <span>Move delay <small>{moveDelay.toFixed(2)}s</small></span>
+        <input
+          type="range" min={0} max={3} step={0.25}
+          value={moveDelay}
+          onChange={(e) => setMoveDelay(Number(e.target.value))}
+        />
+        <small className="play-hint">Minimum pause before the AI plays its reply.</small>
+      </label>
+
+      <div className="play-field">
+        <span>Score</span>
+        <div className="play-seg" role="group" aria-label="Score display">
+          {(['show', 'hide', 'alert'] as ScoreMode[]).map((m) => (
+            <button key={m} type="button" className={scoreMode === m ? 'active' : ''} onClick={() => setScoreMode(m)}>
+              {m === 'show' ? 'Show' : m === 'hide' ? 'Hide' : 'Alert'}
+            </button>
+          ))}
+        </div>
+        {scoreMode === 'alert' && (
+          <span className="play-alert-thresh">
+            Alert when behind by{' '}
+            <input
+              type="number" min={1}
+              value={alertThreshold}
+              onChange={(e) => setAlertThreshold(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+            />{' '}points.
+          </span>
+        )}
+      </div>
+    </>
+  );
 
   if (phase === 'setup') {
     return (
@@ -190,55 +390,7 @@ export function Play() {
         <p className="play-setup-sub">
           A human-like opponent at the rank you choose. Runs entirely in your browser.
         </p>
-
-        <div className="play-field">
-          <span>Your color</span>
-          <div className="play-seg" role="group" aria-label="Your color">
-            {(['B', 'W', 'random'] as ColorChoice[]).map((c) => (
-              <button
-                key={c}
-                type="button"
-                className={colorChoice === c ? 'active' : ''}
-                onClick={() => setColorChoice(c)}
-              >
-                {c === 'B' ? 'Black' : c === 'W' ? 'White' : 'Random'}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="play-field">
-          <span>Model</span>
-          <div className="play-engines">
-            {ENGINES.filter((e) => e.id === 'browser' || localAvailable).map((e) => (
-              <label key={e.id} className={engine === e.id ? 'play-engine active' : 'play-engine'}>
-                <input type="radio" name="play-engine" checked={engine === e.id} onChange={() => setEngine(e.id)} />
-                <span className="play-engine-main">
-                  <span className="play-engine-name">{e.name}</span>
-                  <span className="play-engine-sub">{e.runtime}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-        </div>
-
-        <label className="play-field">
-          <span>Opponent rank</span>
-          <select value={rank} onChange={(e) => setRank(e.target.value)}>
-            {RANKS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
-          </select>
-        </label>
-
-        <label className="play-field">
-          <span>Sharpness <small>{temperature.toFixed(2)}</small></span>
-          <input
-            type="range" min={0.2} max={1.0} step={0.05}
-            value={temperature}
-            onChange={(e) => setTemperature(Number(e.target.value))}
-          />
-          <small className="play-hint">1.0 plays like the rank; lower is sharper and stronger.</small>
-        </label>
-
+        {renderSettings(false)}
         <button type="button" className="play-start" onClick={start}>Start game</button>
       </div></div>
     );
@@ -248,13 +400,37 @@ export function Play() {
   const ended = phase === 'ended';
   const statusText = ended
     ? 'Game over'
-    : thinking ? 'KataGo is thinking…' : `Your move (${myColor === 'B' ? 'Black' : 'White'})`;
-  const scoreText = score === null ? null : `${score >= 0 ? 'B' : 'W'}+${Math.abs(score).toFixed(1)}`;
+    : !atLive ? 'Reviewing an earlier position'
+      : thinking ? (engine === 'browser' && !warmed ? 'Model loading…' : 'KataGo is thinking…')
+        : `Your move (${myColor === 'B' ? 'Black' : 'White'})`;
+  const scoreText = viewScore === null ? null : `${viewScore >= 0 ? 'B' : 'W'}+${Math.abs(viewScore).toFixed(1)}`;
 
   return (
     <div className="play-page"><div className="play-view">
       <div className="play-board">
+        {alerting && (
+          <div className="play-alert">You're behind by {behindBy!.toFixed(1)} points — rewind on the graph and try a different line.</div>
+        )}
+        {showGraph && (
+          <ScoreGraph points={playPoints} total={history.length} cursor={viewIndex} onSeek={seek} />
+        )}
+        {showGraph && !atLive && (
+          <button type="button" className="play-continue play-continue-graph" onClick={continueFromHere}>Continue from here</button>
+        )}
+
         <Board stones={stones} annotations={annotations} onCellClick={handleCellClick} />
+
+        <div className="play-scrub">
+          <button type="button" onClick={() => seek(0)} disabled={viewIndex === 0} aria-label="Start">⏮</button>
+          <button type="button" onClick={() => seek(viewIndex - 1)} disabled={viewIndex === 0} aria-label="Back">◀</button>
+          <span className="play-scrub-pos">{viewIndex} / {history.length}</span>
+          <button type="button" onClick={() => seek(viewIndex + 1)} disabled={atLive} aria-label="Forward">▶</button>
+          <button type="button" onClick={() => seek(history.length)} disabled={atLive} aria-label="Live">⏭</button>
+          {!atLive && !showGraph && (
+            <button type="button" className="play-continue" onClick={continueFromHere}>Continue from here</button>
+          )}
+        </div>
+
         <div className="play-status">
           {error
             ? <span className="play-error">{error}</span>
@@ -265,7 +441,7 @@ export function Play() {
         <div className="play-status">
           <span>
             You: {myColor === 'B' ? 'Black' : 'White'} · KataGo {opponentRank}
-            {scoreText && <> · estimate <strong>{scoreText}</strong></>}
+            {scoreMode === 'show' && scoreText && <> · estimate <strong>{scoreText}</strong></>}
           </span>
         </div>
       </div>
@@ -274,8 +450,9 @@ export function Play() {
         {ended ? (
           <>
             <p className="play-ended-note">{history.length} moves played.</p>
-            <button type="button" className="play-tool play-tool-primary" onClick={reviewGame} disabled={saving}>
-              {saving ? 'Saving…' : 'Review this game'}
+            <button type="button" className="play-tool play-tool-primary" onClick={review}>Review</button>
+            <button type="button" className="play-tool" onClick={save} disabled={saving || saved || !user}>
+              {saved ? 'Saved ✓' : saving ? 'Saving…' : 'Save game'}
             </button>
             {saveError && <span className="play-error">{saveError}</span>}
             <button type="button" className="play-tool" onClick={() => setPhase('playing')}>Keep playing</button>
@@ -288,15 +465,25 @@ export function Play() {
                 Retry
               </button>
             )}
-            <button type="button" className="play-tool" onClick={undo} disabled={!myTurn || history.length < 2}>
-              Undo
-            </button>
-            <button type="button" className="play-tool" onClick={() => setPhase('ended')}>End game</button>
+            <button type="button" className="play-tool" onClick={() => setSettingsOpen(true)}>⚙ Settings</button>
+            <button type="button" className="play-tool" onClick={() => { setSaved(false); setSaveError(null); setPhase('ended'); }}>End game</button>
             <div className="play-tools-divider" />
             <span className="play-movecount">{history.length} moves</span>
           </>
         )}
       </div>
+
+      {settingsOpen && (
+        <div className="play-drawer-backdrop" onClick={() => setSettingsOpen(false)}>
+          <div className="play-drawer" onClick={(e) => e.stopPropagation()}>
+            <div className="play-drawer-head">
+              <span>Settings</span>
+              <button type="button" className="play-drawer-close" onClick={() => setSettingsOpen(false)} aria-label="Close">×</button>
+            </div>
+            {renderSettings(true)}
+          </div>
+        </div>
+      )}
     </div></div>
   );
 }

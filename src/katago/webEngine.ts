@@ -101,6 +101,42 @@ function storageUrl(path: string): Promise<string> {
 }
 const netUrl = (model: AnalysisModel): Promise<string> => storageUrl(model.netPath!);
 
+/** Value-only score estimate (Black perspective) for every position of a game,
+ * for the review score graph. Batched forward passes (browser models only);
+ * `onChunk(fromMove, blackScores)` streams results so the graph fills in. */
+export async function scoreTrajectory(args: {
+  model: AnalysisModel;
+  positions: Array<{ stones: Stone[]; previousStones?: Stone[]; previousPreviousStones?: Stone[]; moves: GameMove[]; toPlay: Color }>;
+  komi?: number;
+  chunk?: number;
+  onChunk: (fromMove: number, blackScores: number[]) => void;
+  signal?: AbortSignal;
+}): Promise<void> {
+  if (args.model.kind !== 'browser') return;
+  const client = getKataGoEngineClient();
+  const modelUrl = await netUrl(args.model);
+  const chunk = args.chunk ?? 24;
+  for (let i = 0; i < args.positions.length; i += chunk) {
+    if (args.signal?.aborted) return;
+    const slice = args.positions.slice(i, i + chunk);
+    const evals = await client.evaluateBatch({
+      modelUrl,
+      backend: 'webgpu',
+      positions: slice.map((p) => ({
+        board: toBoardState(p.stones),
+        previousBoard: p.previousStones ? toBoardState(p.previousStones) : undefined,
+        previousPreviousBoard: p.previousPreviousStones ? toBoardState(p.previousPreviousStones) : undefined,
+        currentPlayer: toPlayer(p.toPlay),
+        moveHistory: toEngineMoves(p.moves),
+        komi: args.komi ?? 7.5,
+      })),
+      rules: 'chinese',
+    });
+    if (args.signal?.aborted) return;
+    args.onChunk(i, evals.map((e) => e.rootScoreLead));
+  }
+}
+
 const HUMAN_NET_PATH = 'katago/b18c384nbt-humanv0.bin.gz';
 
 /** Play a human-like move: sample the human net's rank-conditioned policy (like

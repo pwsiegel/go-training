@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useLocation } from 'react-router-dom';
 import { Board, type Annotation } from '../Board';
-import { replay } from '../goRules';
+import { playMove, replay } from '../goRules';
 import { movesFromSgf, sgfInfo } from '../sgf';
 import { getGame } from '../data/games';
 import type { GameDoc } from '../data/model';
-import type { Color } from '../types';
-import { analyzePosition, BROWSER_MODELS, LOCAL_MODEL, type WebAnalysis } from '../katago/webEngine';
+import type { Color, Stone } from '../types';
+import { analyzePosition, scoreTrajectory, BROWSER_MODELS, LOCAL_MODEL, type WebAnalysis } from '../katago/webEngine';
 import { katagoBackendAvailable } from '../data/katago';
 import { Spinner } from '../Spinner';
+import { ScoreGraph } from '../ScoreGraph';
 import './GameReview.css';
 
 const COLS = 'ABCDEFGHJKLMNOPQRST';
@@ -28,6 +29,9 @@ function scoreBefore(points: Point[], move: number): number | null {
 
 export function GameReview() {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
+  // A just-played game handed straight to review without saving (router state).
+  const previewGame = (location.state as { game?: GameDoc } | null)?.game;
   const [loaded, setLoaded] = useState<{ id: string; game: GameDoc | null } | null>(null);
   const [cursor, setCursor] = useState(0);
   const [analyzeOn, setAnalyzeOn] = useState(false);
@@ -40,6 +44,9 @@ export function GameReview() {
   const [analysis, setAnalysis] = useState<{ cursor: number; data: WebAnalysis } | null>(null);
   const [analysisErr, setAnalysisErr] = useState('');
   const [partialTop, setPartialTop] = useState<{ cursor: number; x: number; y: number } | null>(null);
+  // Score estimates gathered from live analysis, keyed by move — so the graph
+  // fills in for any game (not just AI games that recorded scores while played).
+  const [analyzedScores, setAnalyzedScores] = useState<Record<number, number>>({});
   const settingsRef = useRef<HTMLDivElement>(null);
 
   // Offer the native-backend model only when it's reachable (dev with `make api`).
@@ -67,26 +74,36 @@ export function GameReview() {
   }, [settingsOpen]);
 
   useEffect(() => {
+    if (previewGame) return;
     let active = true;
     getGame(id ?? '').then((g) => {
-      if (!active) return;
-      setLoaded({ id: id ?? '', game: g });
-      setCursor(g ? movesFromSgf(g.sgf).length : 0);
+      if (active) setLoaded({ id: id ?? '', game: g });
     });
     return () => { active = false; };
-  }, [id]);
+  }, [id, previewGame]);
 
-  const loading = !loaded || loaded.id !== id;
-  const game = loading ? null : loaded.game;
+  const loading = !previewGame && (!loaded || loaded.id !== id);
+  const game = previewGame ?? (loading ? null : loaded?.game ?? null);
   const moves = useMemo(() => (game ? movesFromSgf(game.sgf) : []), [game]);
   const total = moves.length;
 
+  // Start the cursor at the end whenever a different game is shown (render-time
+  // adjustment rather than a setState-in-effect).
+  const [cursorForGame, setCursorForGame] = useState<GameDoc | null>(null);
+  if (game && game !== cursorForGame) {
+    setCursorForGame(game);
+    setCursor(total);
+    setAnalyzedScores({});
+  }
+
   const points = useMemo<Point[]>(() => {
-    if (!game) return [];
-    return Object.entries(game.scoreAt ?? {})
-      .map(([k, v]) => ({ move: Number(k), lead: v }))
+    const merged: Record<number, number> = {};
+    for (const [k, v] of Object.entries(game?.scoreAt ?? {})) merged[Number(k)] = v;
+    for (const [k, v] of Object.entries(analyzedScores)) merged[Number(k)] = v;
+    return Object.entries(merged)
+      .map(([m, lead]) => ({ move: Number(m), lead }))
       .sort((a, b) => a.move - b.move);
-  }, [game]);
+  }, [game, analyzedScores]);
 
   const shown = useMemo(() => replay(moves.slice(0, cursor)), [moves, cursor]);
 
@@ -140,6 +157,7 @@ export function GameReview() {
       .then((res) => {
         if (!active || res === null) return;
         setAnalysis({ cursor: forCursor, data: res });
+        setAnalyzedScores((s) => ({ ...s, [forCursor]: res.rootScoreLead }));
         setAnalysisErr('');
       })
       .catch((e) => {
@@ -148,6 +166,45 @@ export function GameReview() {
       });
     return () => { active = false; ctrl.abort(); };
   }, [analyzeOn, model, visits, game, id, moves, cursor, shown]);
+
+  // Full-game score curve for the graph: one fast value pass over every position
+  // when AI review is on (browser models only), filling in progressively.
+  useEffect(() => {
+    if (!analyzeOn || !game || model.kind !== 'browser') return;
+    const ctrl = new AbortController();
+    const boards: Stone[][] = [[]];
+    let stones: Stone[] = [];
+    let ko: { x: number; y: number } | null = null;
+    for (let k = 0; k < total; k++) {
+      const mv = moves[k];
+      if (mv.x < 0 || mv.y < 0) { boards.push(stones); continue; } // pass
+      const r = playMove(stones, mv.color, mv.x, mv.y, ko);
+      if (!r.ok) { boards.push(stones); continue; }
+      stones = r.stones; ko = r.koPoint;
+      boards.push(stones);
+    }
+    const positions = boards.map((b, k) => ({
+      stones: b,
+      previousStones: k > 0 ? boards[k - 1] : undefined,
+      previousPreviousStones: k > 1 ? boards[k - 2] : undefined,
+      moves: moves.slice(0, k),
+      toPlay: (k < total ? moves[k].color : k > 0 ? (moves[k - 1].color === 'B' ? 'W' : 'B') : 'B') as Color,
+    }));
+    scoreTrajectory({
+      model,
+      positions,
+      komi: 7.5,
+      onChunk: (from, scores) => {
+        setAnalyzedScores((s) => {
+          const next = { ...s };
+          scores.forEach((v, j) => { next[from + j] = v; });
+          return next;
+        });
+      },
+      signal: ctrl.signal,
+    }).catch(() => { /* aborted or transient engine error */ });
+    return () => ctrl.abort();
+  }, [analyzeOn, game, model, moves, total]);
 
   if (loading) return <div className="center-screen"><Spinner /></div>;
   if (!game) {
@@ -259,9 +316,7 @@ export function GameReview() {
         </div>
       </div>
 
-      {points.length > 0 && (
-        <GameScoreGraph points={points} total={total} cursor={cursor} onSeek={seek} />
-      )}
+      {analyzeOn && <ScoreGraph points={points} total={total} cursor={cursor} onSeek={seek} />}
 
       <div className="gr-main">
         <div className="gr-board">
@@ -287,7 +342,6 @@ export function GameReview() {
                 : currentAnalysis ? (
                   <>
                     {' · '}KataGo <strong>{scoreLabel(currentAnalysis.rootScoreLead)}</strong>
-                    {' · '}{(currentAnalysis.rootWinrate * 100).toFixed(0)}% B
                     {' · '}{currentAnalysis.rootVisits}v
                     {playedNext && currentAnalysis.playedEval && (
                       <> · played {coordLabel(playedNext.x, playedNext.y)} (−{currentAnalysis.playedEval.pointsLost.toFixed(1)})</>
@@ -314,64 +368,5 @@ export function GameReview() {
         </ol>
       </div>
     </div>
-  );
-}
-
-function GameScoreGraph({
-  points, total, cursor, onSeek,
-}: {
-  points: Point[];
-  total: number;
-  cursor: number;
-  onSeek: (move: number) => void;
-}) {
-  const W = 900, H = 240, padL = 44, padR = 16, padT = 18, padB = 26;
-  const plotW = W - padL - padR;
-  const plotH = H - padT - padB;
-  const rawMax = Math.max(0, ...points.map((p) => Math.abs(p.lead)));
-  const maxAbs = Math.max(10, Math.ceil(rawMax / 5) * 5);
-  const xOf = (m: number) => padL + (total > 0 ? (m / total) * plotW : 0);
-  const yOf = (lead: number) => padT + plotH / 2 - (lead / maxAbs) * (plotH / 2);
-  const path = points.map((p, i) => `${i ? 'L' : 'M'}${xOf(p.move).toFixed(1)},${yOf(p.lead).toFixed(1)}`).join(' ');
-
-  const [dragging, setDragging] = useState(false);
-  const seekAt = (clientX: number, el: SVGSVGElement) => {
-    const rect = el.getBoundingClientRect();
-    const vx = ((clientX - rect.left) / rect.width) * W;
-    onSeek(Math.round(((vx - padL) / plotW) * total));
-  };
-
-  const moveTicks = total > 0
-    ? Array.from({ length: 5 }, (_, i) => Math.round((total * (i + 1)) / 5)).filter((m, i, a) => a.indexOf(m) === i)
-    : [];
-
-  return (
-    <svg
-      className="gr-graph"
-      viewBox={`0 0 ${W} ${H}`}
-      role="img"
-      aria-label="Score estimate over the game (Black positive, White negative)"
-      onPointerDown={(e) => { setDragging(true); e.currentTarget.setPointerCapture(e.pointerId); seekAt(e.clientX, e.currentTarget); }}
-      onPointerMove={(e) => { if (dragging) seekAt(e.clientX, e.currentTarget); }}
-      onPointerUp={() => setDragging(false)}
-    >
-      {/* score gridlines + labels */}
-      <line x1={padL} y1={yOf(maxAbs)} x2={W - padR} y2={yOf(maxAbs)} className="gr-graph-grid" />
-      <line x1={padL} y1={yOf(0)} x2={W - padR} y2={yOf(0)} className="gr-graph-zero" />
-      <line x1={padL} y1={yOf(-maxAbs)} x2={W - padR} y2={yOf(-maxAbs)} className="gr-graph-grid" />
-      <text x={padL - 6} y={yOf(maxAbs) + 4} className="gr-graph-ylabel">B+{maxAbs}</text>
-      <text x={padL - 6} y={yOf(0) + 4} className="gr-graph-ylabel">0</text>
-      <text x={padL - 6} y={yOf(-maxAbs) + 4} className="gr-graph-ylabel">W+{maxAbs}</text>
-
-      {/* move-number ticks */}
-      {moveTicks.map((m) => (
-        <text key={m} x={xOf(m)} y={H - 8} className="gr-graph-xlabel">{m}</text>
-      ))}
-
-      {points.length > 0 && <path d={path} className="gr-graph-line" fill="none" />}
-      {points.map((p) => <circle key={p.move} cx={xOf(p.move)} cy={yOf(p.lead)} r={2.5} className="gr-graph-dot" />)}
-
-      <line x1={xOf(cursor)} y1={padT} x2={xOf(cursor)} y2={H - padB} className="gr-graph-cursor" />
-    </svg>
   );
 }
