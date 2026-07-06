@@ -27,7 +27,7 @@ export type LibCollection = {
 
 // ---------- Firestore ----------
 
-export type Role = 'student' | 'teacher';
+export type Role = 'player' | 'teacher';
 
 export type UserDoc = {
   uid: string;

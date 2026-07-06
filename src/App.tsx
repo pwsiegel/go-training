@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Routes, Route, Navigate, Link, NavLink, useLocation, type Location } from 'react-router-dom';
+import { Routes, Route, Navigate, Link, NavLink, useLocation, useNavigate, type Location } from 'react-router-dom';
 import { useAuth } from './auth';
 import { BatchProvider } from './batch';
 import { Spinner } from './Spinner';
@@ -30,42 +30,36 @@ function subNavClass({ isActive }: { isActive: boolean }) {
   return isActive ? 'sidebar-link sidebar-sublink active' : 'sidebar-link sidebar-sublink';
 }
 
-/** `/` lands teachers on the teacher view by default. The "Student view" swap
- * passes `fromTeacher` so it can reach the student Home without bouncing back. */
-function RootRoute() {
-  const { profile } = useAuth();
-  const location = useLocation();
-  const fromTeacher = (location.state as { fromTeacher?: boolean } | null)?.fromTeacher;
-  if (profile?.role === 'teacher' && !fromTeacher) return <Navigate to="/teacher" replace />;
-  return <Home />;
-}
-
-function Sidebar() {
-  const { user, profile, signOutUser } = useAuth();
-  const { pathname } = useLocation();
-  const isTeacher = pathname.startsWith('/teacher');
-  const [canTeach, setCanTeach] = useState(false);
+function Sidebar({ teacherMode, canToggle, onToggle }: {
+  teacherMode: boolean;
+  canToggle: boolean;
+  onToggle: () => void;
+}) {
+  const { profile, signOutUser } = useAuth();
   const [showProfile, setShowProfile] = useState(false);
-  useEffect(() => {
-    if (user) listStudents(user.uid).then((s) => setCanTeach(s.length > 0)).catch(() => {});
-  }, [user]);
   return (
     <aside className="sidebar">
-      <Link to={isTeacher ? '/teacher' : '/'} className="sidebar-brand">tsumego</Link>
+      <Link to={teacherMode ? '/teacher/submissions' : '/'} className="sidebar-brand">Go training</Link>
       <nav className="sidebar-links" aria-label="Primary">
-        {isTeacher ? (
-          <NavLink to="/teacher" end className={navClass}>Students</NavLink>
+        {teacherMode ? (
+          <>
+            <div className="sidebar-group">
+              <span className="sidebar-group-label">Tsumego</span>
+              <NavLink to="/teacher/submissions" className={subNavClass}>Submissions</NavLink>
+              <NavLink to="/teacher/history" className={subNavClass}>History</NavLink>
+            </div>
+            <NavLink to="/review" className={navClass}>Review games</NavLink>
+          </>
         ) : (
           <>
             <NavLink to="/" end className={navClass}>Home</NavLink>
             <div className="sidebar-group">
-              <span className="sidebar-group-label">Tsumego</span>
-              <NavLink to="/library" className={subNavClass}>Library</NavLink>
+              <NavLink to="/library" className={navClass}>Solve tsumego</NavLink>
               <NavLink to="/submissions" end className={subNavClass}>Submissions</NavLink>
               <NavLink to="/history" className={subNavClass}>History</NavLink>
             </div>
             <NavLink to="/play" className={navClass}>Play AI</NavLink>
-            <NavLink to="/review" className={navClass}>Review</NavLink>
+            <NavLink to="/review" className={navClass}>Review games</NavLink>
           </>
         )}
       </nav>
@@ -75,10 +69,10 @@ function Sidebar() {
             {profile.displayName}
           </button>
         )}
-        {canTeach && (
-          <Link to={isTeacher ? '/' : '/teacher'} state={isTeacher ? { fromTeacher: true } : undefined} className="sidebar-btn">
-            {isTeacher ? 'Student view' : 'Teacher view'}
-          </Link>
+        {canToggle && (
+          <button type="button" className="sidebar-btn" onClick={onToggle}>
+            {teacherMode ? 'Player view' : 'Teacher view'}
+          </button>
         )}
         <button type="button" className="sidebar-btn" onClick={signOutUser}>Sign out</button>
         <ThemeToggle />
@@ -91,6 +85,12 @@ function Sidebar() {
 export default function App() {
   const { user, profile, loading, signOutUser } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
+  const [override, setOverride] = useState<boolean | null>(null);
+  const [canTeach, setCanTeach] = useState(false);
+  useEffect(() => {
+    if (user) listStudents(user.uid).then((s) => setCanTeach(s.length > 0)).catch(() => {});
+  }, [user]);
   const backgroundLocation = (location.state as { backgroundLocation?: Location } | null)?.backgroundLocation;
 
   if (loading) return <div className="center-screen"><Spinner /></div>;
@@ -104,6 +104,15 @@ export default function App() {
     );
   }
 
+  // Teacher mode follows the account role; a dual-role user (a teacher who also
+  // studies) can flip views, and `override` holds that manual choice.
+  const teacherMode = override ?? (profile.role === 'teacher');
+  const toggleMode = () => {
+    const next = !teacherMode;
+    setOverride(next);
+    navigate(next ? '/teacher/submissions' : '/');
+  };
+
   // The batch drawer ("current submission") belongs to the tsumego workflow only.
   const effectivePath = (backgroundLocation ?? location).pathname;
   const showBatch = /^\/(library|submissions|history|solve)(\/|$)/.test(effectivePath);
@@ -111,10 +120,10 @@ export default function App() {
   return (
     <BatchProvider>
       <div className="app-shell">
-        <Sidebar />
+        <Sidebar teacherMode={teacherMode} canToggle={canTeach || profile.role === 'teacher'} onToggle={toggleMode} />
         <main className="app-main">
           <Routes location={backgroundLocation ?? location}>
-            <Route path="/" element={<RootRoute />} />
+            <Route path="/" element={teacherMode ? <Navigate to="/teacher/submissions" replace /> : <Home />} />
             <Route path="/library" element={<Library />} />
             <Route path="/library/:slug" element={<CollectionView />} />
             <Route path="/solve/:slug/:id" element={<Solve />} />
@@ -122,10 +131,11 @@ export default function App() {
             <Route path="/submissions/:id" element={<SubmissionDetail />} />
             <Route path="/history" element={<History />} />
             <Route path="/play" element={<Play />} />
-            <Route path="/review" element={<Review />} />
+            <Route path="/review" element={<Review teacherMode={teacherMode} />} />
             <Route path="/review/:id" element={<GameReview />} />
-            <Route path="/teacher" element={<Teacher />} />
-            <Route path="/teacher/:studentUid" element={<Teacher />} />
+            <Route path="/teacher" element={<Navigate to="/teacher/submissions" replace />} />
+            <Route path="/teacher/submissions" element={<Teacher mode="pending" />} />
+            <Route path="/teacher/history" element={<Teacher mode="history" />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
           {backgroundLocation && (

@@ -25,20 +25,6 @@
 .teacher-student-name { font-size: 1.05rem; font-weight: 600; }
 .teacher-student-meta { color: var(--text-faint); font-size: 0.9rem; }
 
-.teacher-section-title {
-  margin: 2rem 0 0.75rem; font-size: 0.85rem; color: var(--text-tertiary);
-  font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
-}
-
-/* student filter chips */
-.teacher-filter { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1.25rem; }
-.teacher-filter-chip {
-  padding: 0.35rem 0.8rem; border: 1px solid var(--border-strong); border-radius: 999px;
-  background: var(--bg); color: var(--text-secondary); text-decoration: none; font-size: 0.85rem; cursor: pointer;
-}
-.teacher-filter-chip:hover { background: var(--border-softer); }
-.teacher-filter-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-
 /* one submission */
 .teacher-batch-student { font-weight: 600; color: var(--text); margin-right: 0.5rem; }
 .teacher-batch { margin: 1.75rem 0; }

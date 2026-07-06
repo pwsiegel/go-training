@@ -6,7 +6,7 @@ export function Login() {
   return (
     <div className="login">
       <div className="login-card">
-        <h1 className="login-brand">tsumego</h1>
+        <h1 className="login-brand">Go training</h1>
         <p className="login-sub">Sign in to access your problem library and reviews.</p>
         <button className="login-btn" onClick={signIn}>Sign in with Google</button>
       </div>

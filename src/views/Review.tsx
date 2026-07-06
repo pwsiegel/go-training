@@ -2,17 +2,20 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { deleteGame, listGames } from '../data/games';
+import { listStudents } from '../data/links';
 import { foxAvailable, listFoxAccounts } from '../data/fox';
-import type { FoxAccountDoc, GameDoc } from '../data/model';
+import type { FoxAccountDoc, GameDoc, UserDoc } from '../data/model';
 import { movesFromSgf, sgfInfo } from '../sgf';
 import { replay } from '../goRules';
 import { Board } from '../Board';
 import { Spinner } from '../Spinner';
+import { FilterChips } from '../FilterChips';
 import { ManagePlayersModal } from './ManagePlayersModal';
 import './Review.css';
 
 const LOCAL_AI = 'local-ai';
 const PAGE_SIZE = 32;
+const dedupeById = (gs: GameDoc[]) => Array.from(new Map(gs.map((g) => [g.id, g])).values());
 const scoreLabel = (lead: number) => `${lead >= 0 ? 'B' : 'W'}+${Math.abs(lead).toFixed(1)}`;
 const shortDate = (ms: number) =>
   new Date(ms).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
@@ -26,11 +29,12 @@ function resultLabel(g: GameDoc): string {
 }
 
 /** One game as a card: the position at move 30 (or the final position if the
- * game was shorter) plus players, date, moves, and result. */
+ * game was shorter) plus players, date, moves, and result. A missing `onDelete`
+ * (e.g. a student's shared game) renders the card without the delete control. */
 function GameCard({ game, onOpen, onDelete }: {
   game: GameDoc;
   onOpen: () => void;
-  onDelete: () => void;
+  onDelete?: () => void;
 }) {
   const moves = useMemo(() => movesFromSgf(game.sgf), [game.sgf]);
   const stones = useMemo(() => replay(moves.slice(0, 30)).stones, [moves]);
@@ -43,14 +47,16 @@ function GameCard({ game, onOpen, onDelete }: {
       onClick={onOpen}
       onKeyDown={(e) => { if (e.key === 'Enter') onOpen(); }}
     >
-      <button
-        type="button"
-        className="game-card-del"
-        aria-label="Delete game"
-        onClick={(e) => { e.stopPropagation(); onDelete(); }}
-      >
-        ×
-      </button>
+      {onDelete && (
+        <button
+          type="button"
+          className="game-card-del"
+          aria-label="Delete game"
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+        >
+          ×
+        </button>
+      )}
       <div className="game-card-board">
         <Board stones={stones} displayOnly thumbnail />
       </div>
@@ -67,11 +73,15 @@ function GameCard({ game, onOpen, onDelete }: {
   );
 }
 
-export function Review() {
+/** Game review browser. In student view it's your own games, filtered by your
+ * Fox accounts + vs-KataGo, and deletable. In teacher view it's your students'
+ * shared games only — one read-only "shared by <student>" filter each. */
+export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [games, setGames] = useState<GameDoc[] | null>(null);
   const [accounts, setAccounts] = useState<FoxAccountDoc[]>([]);
+  const [students, setStudents] = useState<UserDoc[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [foxOk, setFoxOk] = useState(false);
   const [managing, setManaging] = useState(false);
@@ -80,38 +90,56 @@ export function Review() {
 
   useEffect(() => {
     if (!user) return;
+    const uid = user.uid;
     let active = true;
-    Promise.all([listGames(user.uid), listFoxAccounts(user.uid)])
-      .then(([g, a]) => {
-        if (!active) return;
-        setGames(g);
-        setAccounts(a);
-        setSelected(new Set([LOCAL_AI, ...a.map((x) => String(x.uid))]));
-      })
-      .catch(() => { if (active) setGames([]); });
-    foxAvailable().then((ok) => { if (active) setFoxOk(ok); });
+    if (teacherMode) {
+      listStudents(uid)
+        .then(async (ss) => {
+          const studentGames = dedupeById((await Promise.all(ss.map((s) => listGames(s.uid).catch(() => [])))).flat());
+          if (!active) return;
+          setStudents(ss);
+          setAccounts([]);
+          setGames(studentGames);
+          setSelected(new Set(ss.map((s) => `student:${s.uid}`)));
+        })
+        .catch(() => { if (active) setGames([]); });
+    } else {
+      Promise.all([listGames(uid), listFoxAccounts(uid)])
+        .then(([own, a]) => {
+          if (!active) return;
+          setStudents([]);
+          setAccounts(a);
+          setGames(own);
+          setSelected(new Set([LOCAL_AI, ...a.map((x) => String(x.uid))]));
+        })
+        .catch(() => { if (active) setGames([]); });
+      foxAvailable().then((ok) => { if (active) setFoxOk(ok); });
+    }
     return () => { active = false; };
-  }, [user]);
+  }, [user, teacherMode]);
 
   const hasLocalAi = useMemo(() => !!games?.some((g) => g.source === 'go-training'), [games]);
 
-  // Filter chips: one per tracked Fox account, plus games played against KataGo.
+  // Student view: your Fox accounts + vs-KataGo. Teacher view: one read-only
+  // "shared by <student>" chip per linked student.
   const chips = useMemo(() => {
+    if (teacherMode) return students.map((s) => ({ key: `student:${s.uid}`, label: `shared by ${s.displayName}` }));
     const list = accounts.map((a) => ({ key: String(a.uid), label: a.username }));
     if (hasLocalAi) list.push({ key: LOCAL_AI, label: 'vs KataGo' });
     return list;
-  }, [accounts, hasLocalAi]);
+  }, [teacherMode, students, accounts, hasLocalAi]);
 
   const visible = useMemo(() => {
     if (!games) return [];
     return games
       .filter((g) => {
+        if (teacherMode) return selected.has(`student:${g.ownerUid}`);
         if (g.source === 'go-training') return selected.has(LOCAL_AI);
         return (g.blackUid != null && selected.has(String(g.blackUid)))
           || (g.whiteUid != null && selected.has(String(g.whiteUid)));
       })
       .sort((a, b) => b.createdAt - a.createdAt);
-  }, [games, selected]);
+  }, [games, selected, teacherMode]);
 
   // Reset to the first page when the filter changes (adjust state during render).
   if (prevSelected !== selected) {
@@ -130,11 +158,12 @@ export function Review() {
       return next;
     });
 
-  // Reload after a Manage-players change; auto-select any newly-added player.
+  // Reload after a Manage-players change (student view only); auto-select any
+  // newly-added player.
   const reload = async () => {
     if (!user) return;
-    const [g, a] = await Promise.all([listGames(user.uid), listFoxAccounts(user.uid)]);
-    setGames(g);
+    const [own, a] = await Promise.all([listGames(user.uid), listFoxAccounts(user.uid)]);
+    setGames(own);
     setAccounts(a);
     setSelected((s) => new Set([...s, ...a.map((x) => String(x.uid))]));
   };
@@ -147,39 +176,27 @@ export function Review() {
 
   if (games === null) return <div className="center-screen"><Spinner /></div>;
 
+  const emptyMessage = teacherMode
+    ? (students.length === 0 ? 'No linked students yet.' : 'No games shared by the selected students.')
+    : (accounts.length === 0 && !hasLocalAi
+        ? (foxOk ? 'Add a player with “Manage players” to import games.' : 'No games yet.')
+        : 'No games match the selected filters.');
+
   return (
     <div className="review">
       <div className="review-head">
-        <h1>Games</h1>
-        {foxOk && (
+        <h1>{teacherMode ? 'Shared games' : 'Games'}</h1>
+        {!teacherMode && foxOk && (
           <button type="button" className="review-manage" onClick={() => setManaging(true)}>
             Manage players
           </button>
         )}
       </div>
 
-      {chips.length > 0 && (
-        <div className="review-filter" role="group" aria-label="Filter by account">
-          {chips.map((c) => (
-            <button
-              key={c.key}
-              type="button"
-              className={selected.has(c.key) ? 'review-chip active' : 'review-chip'}
-              aria-pressed={selected.has(c.key)}
-              onClick={() => toggle(c.key)}
-            >
-              {c.label}
-            </button>
-          ))}
-        </div>
-      )}
+      <FilterChips chips={chips} selected={selected} onToggle={toggle} label="Filter games" />
 
       {visible.length === 0 ? (
-        <p className="review-empty">
-          {accounts.length === 0 && !hasLocalAi
-            ? (foxOk ? 'Add a player with “Manage players” to import games.' : 'No games yet.')
-            : 'No games match the selected accounts.'}
-        </p>
+        <p className="review-empty">{emptyMessage}</p>
       ) : (
         <>
         <div className="review-grid">
@@ -188,7 +205,7 @@ export function Review() {
               key={g.id}
               game={g}
               onOpen={() => navigate(`/review/${g.id}`)}
-              onDelete={() => remove(g.id)}
+              onDelete={teacherMode ? undefined : () => remove(g.id)}
             />
           ))}
         </div>
