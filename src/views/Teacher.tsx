@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { Spinner } from '../Spinner';
 import { ProblemCard } from '../ProblemCard';
+import { FilterChips } from '../FilterChips';
 import { toStones } from '../stones';
 import { listStudents } from '../data/links';
 import { loadTeacherReview, setVerdicts, type SubmissionView } from '../data/study';
@@ -17,13 +17,16 @@ const VERDICTS: { v: Verdict; mark: string }[] = [
   { v: 'incorrect', mark: '✗' },
 ];
 
-export function Teacher() {
+/** The teacher's inbox of student work, filtered by student with the shared
+ * chip filter. `mode` picks the surface: `pending` grades submissions awaiting
+ * review; `history` is the read-only record of graded submissions. */
+export function Teacher({ mode }: { mode: 'pending' | 'history' }) {
   const { user } = useAuth();
-  const { studentUid: filter } = useParams<{ studentUid: string }>();
   const teacherUid = user!.uid;
 
   const [students, setStudents] = useState<UserDoc[] | null>(null);
   const [views, setViews] = useState<SubmissionView[] | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [problems, setProblems] = useState<Record<string, LibProblem | null>>({});
   const [open, setOpen] = useState<{ submissionId: string; idx: number } | null>(null);
   // Drafted verdicts (attemptId → verdict), held locally until "Return review".
@@ -33,8 +36,8 @@ export function Teacher() {
   const refresh = useCallback(() => {
     listStudents(teacherUid).then(async (ss) => {
       setStudents(ss);
-      const targets = filter ? ss.filter((s) => s.uid === filter) : ss;
-      const all = (await Promise.all(targets.map((s) => loadTeacherReview(s.uid, teacherUid)))).flat();
+      setSelected(new Set(ss.map((s) => s.uid)));
+      const all = (await Promise.all(ss.map((s) => loadTeacherReview(s.uid, teacherUid)))).flat();
       all.sort((a, b) => b.submission.sentAt - a.submission.sentAt);
       setViews(all);
       const d: Record<string, Verdict> = {};
@@ -44,13 +47,20 @@ export function Teacher() {
       const entries = await Promise.all(ids.map(async (pid) => [pid, await findProblem(pid)] as const));
       setProblems(Object.fromEntries(entries));
     });
-  }, [teacherUid, filter]);
+  }, [teacherUid]);
 
   useEffect(refresh, [refresh]);
 
   const nameByUid = new Map((students ?? []).map((s) => [s.uid, s.displayName]));
 
   const setDraft = (attemptId: string, v: Verdict) => setDrafts((d) => ({ ...d, [attemptId]: v }));
+
+  const toggleStudent = (key: string) =>
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
 
   // Commit a submission's drafted-but-unsaved verdicts in one batch, then
   // reflect them locally (no reload — keeps grading snappy).
@@ -90,7 +100,7 @@ export function Teacher() {
       <section key={view.submission.id} className="teacher-batch">
         <h2 className="teacher-batch-header">
           <span>
-            {!filter && <span className="teacher-batch-student">{nameByUid.get(view.submission.studentUid) ?? 'student'}</span>}
+            <span className="teacher-batch-student">{nameByUid.get(view.submission.studentUid) ?? 'student'}</span>
             Submitted {new Date(view.submission.sentAt).toLocaleString()}
           </span>
           {!readOnly && (
@@ -142,46 +152,36 @@ export function Teacher() {
     );
   };
 
-  const all = views ?? [];
+  const all = (views ?? []).filter((v) => selected.has(v.submission.studentUid));
   const pending = all.filter((v) => v.items.some((it) => !it.verdict));
   const history = all.filter((v) => v.items.length > 0 && v.items.every((it) => it.verdict));
+  const shown = mode === 'pending' ? pending : history;
+
+  const chips = (students ?? []).map((s) => ({ key: s.uid, label: s.displayName }));
 
   return (
     <div className="teacher">
-      <div className="teacher-header"><h1>Submissions</h1></div>
+      <div className="teacher-header"><h1>{mode === 'pending' ? 'Submissions' : 'History'}</h1></div>
 
-      {students && students.length > 0 && (
-        <div className="teacher-filter">
-          <Link to="/teacher" className={`teacher-filter-chip${!filter ? ' active' : ''}`}>All students</Link>
-          {students.map((s) => (
-            <Link key={s.uid} to={`/teacher/${s.uid}`} className={`teacher-filter-chip${filter === s.uid ? ' active' : ''}`}>
-              {s.displayName}
-            </Link>
-          ))}
-        </div>
+      {students && students.length > 1 && (
+        <FilterChips chips={chips} selected={selected} onToggle={toggleStudent} label="Filter by student" />
       )}
 
       {views === null ? <Spinner /> : students && students.length === 0
         ? <p className="teacher-empty">No linked students yet.</p>
-        : <>
-            <h2 className="teacher-section-title">Pending submissions</h2>
-            {pending.length === 0
-              ? <p className="teacher-empty-sub">Nothing awaiting review.</p>
-              : pending.map((v) => renderBatch(v, true))}
-
-            <h2 className="teacher-section-title">Submission history</h2>
-            {history.length === 0
-              ? <p className="teacher-empty-sub">No graded submissions yet.</p>
-              : history.map((v) => renderBatch(v, false, true))}
-          </>}
+        : shown.length === 0
+          ? <p className="teacher-empty-sub">
+              {mode === 'pending' ? 'Nothing awaiting review.' : 'No graded submissions yet.'}
+            </p>
+          : shown.map((v) => renderBatch(v, mode === 'pending', mode === 'history'))}
 
       {(() => {
         if (!open) return null;
-        const view = all.find((v) => v.submission.id === open.submissionId);
+        const view = (views ?? []).find((v) => v.submission.id === open.submissionId);
         const cur = view?.items[open.idx];
         const problem = cur ? problems[cur.attempt.problemId] : null;
         if (!view || !cur || !problem) return null;
-        const history = all
+        const history = (views ?? [])
           .flatMap((v) => v.items)
           .filter((it) => it.attempt.problemId === cur.attempt.problemId)
           .sort((a, b) => b.attempt.createdAt - a.attempt.createdAt)

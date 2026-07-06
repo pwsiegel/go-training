@@ -9,7 +9,7 @@ export function ProfileModal({ onClose }: { onClose: () => void }) {
   const { user, profile } = useAuth();
   const uid = user!.uid;
   const [name, setName] = useState(profile?.displayName ?? '');
-  const [role, setRoleState] = useState<'student' | 'teacher'>(profile?.role ?? 'student');
+  const [role, setRoleState] = useState<'player' | 'teacher'>(profile?.role === 'teacher' ? 'teacher' : 'player');
   const [saving, setSaving] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
 
@@ -59,8 +59,8 @@ export function ProfileModal({ onClose }: { onClose: () => void }) {
           <label className="profile-row">
             <span className="profile-label">Default view</span>
             <select className="profile-input" value={role}
-              onChange={(e) => setRoleState(e.target.value as 'student' | 'teacher')}>
-              <option value="student">Student</option>
+              onChange={(e) => setRoleState(e.target.value as 'player' | 'teacher')}>
+              <option value="player">Player</option>
               <option value="teacher">Teacher</option>
             </select>
           </label>

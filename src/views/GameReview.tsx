@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useLocation } from 'react-router-dom';
+import { useAuth } from '../auth';
 import { Board, type Annotation } from '../Board';
 import { playMove, replay } from '../goRules';
 import { movesFromSgf, sgfInfo } from '../sgf';
@@ -30,6 +31,7 @@ function scoreBefore(points: Point[], move: number): number | null {
 export function GameReview() {
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
+  const { user } = useAuth();
   // A just-played game handed straight to review without saving (router state).
   const previewGame = (location.state as { game?: GameDoc } | null)?.game;
   const [loaded, setLoaded] = useState<{ id: string; game: GameDoc | null } | null>(null);
@@ -249,7 +251,7 @@ export function GameReview() {
         </h1>
         <p className="gr-meta">
           {when}
-          {game.myColor && <> · you played {game.myColor === 'B' ? 'Black' : 'White'}</>}
+          {game.myColor && game.ownerUid === user?.uid && <> · you played {game.myColor === 'B' ? 'Black' : 'White'}</>}
           {' · '}{total} moves
           {game.finalScore != null
             ? <> · final estimate <strong>{scoreLabel(game.finalScore)}</strong></>

@@ -8,7 +8,7 @@ import type { Role, UserDoc } from './model';
 
 export type Profile = UserDoc;
 
-/** Read the profile, creating it on first sign-in (default role: student). */
+/** Read the profile, creating it on first sign-in (default role: player). */
 export async function ensureProfile(
   uid: string, email: string, displayName: string,
 ): Promise<Profile> {
@@ -21,7 +21,7 @@ export async function ensureProfile(
     uid,
     email,
     displayName: displayName || email,
-    role: 'student',
+    role: 'player',
   };
   await setDoc(ref, { ...profile, createdAt: serverTimestamp() });
   return profile;
