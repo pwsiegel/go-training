@@ -153,27 +153,6 @@
   color: var(--error);
 }
 
-/* --- big score graph --- */
-
-.gr-graph {
-  width: 100%;
-  height: auto;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-subtle);
-  cursor: pointer;
-  touch-action: none;
-  margin-bottom: 1rem;
-}
-
-.gr-graph-line { stroke: var(--accent); stroke-width: 2; }
-.gr-graph-dot { fill: var(--accent); }
-.gr-graph-zero { stroke: var(--text-muted); stroke-width: 1; }
-.gr-graph-grid { stroke: var(--border); stroke-width: 1; }
-.gr-graph-cursor { stroke: var(--text); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.55; }
-.gr-graph-ylabel { fill: var(--text-muted); font-size: 11px; text-anchor: end; }
-.gr-graph-xlabel { fill: var(--text-muted); font-size: 11px; text-anchor: middle; }
-
 /* --- board + move list --- */
 
 .gr-main {

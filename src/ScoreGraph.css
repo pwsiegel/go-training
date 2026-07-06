@@ -1,0 +1,18 @@
+.score-graph {
+  width: 100%;
+  height: auto;
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-subtle);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.score-graph-line { stroke: var(--accent); stroke-width: 2; }
+.score-graph-dot { fill: var(--accent); }
+.score-graph-zero { stroke: var(--text-muted); stroke-width: 1; }
+.score-graph-grid { stroke: var(--border); stroke-width: 1; }
+.score-graph-cursor { stroke: var(--text); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.55; }
+.score-graph-ylabel { fill: var(--text-muted); font-size: 11px; text-anchor: end; }
+.score-graph-xlabel { fill: var(--text-muted); font-size: 11px; text-anchor: middle; }
