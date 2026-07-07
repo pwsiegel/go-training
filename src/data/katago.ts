@@ -1,14 +1,12 @@
-// Client for the local KataGo analysis bridge (explore-mode AI hints). Only
-// reachable in local dev when the backend runs with the analysis engine
-// (`make api-katago`); the toggle that calls it is hidden unless VITE_KATAGO=1.
-// Requests go to a relative path that Vite proxies to the backend (see
-// vite.config.ts), so no CORS handling is needed.
+// Client for the native KataGo analysis backend (`/api/katago`) — an optional
+// engine offered in local dev when it's reachable (`make api`). The user-facing
+// AI (Review, Play, and Explore hints) runs in the browser by default; this
+// backend is the "Native (Metal)" model option. Requests go to a relative path
+// that Vite proxies to the backend (see vite.config.ts), so no CORS handling is
+// needed.
 import type { Color, Stone } from '../types';
 
 const API_BASE = import.meta.env.VITE_KATAGO_API ?? '';
-
-/** Whether to surface the explore-mode AI toggle at all (local dev only). */
-export const KATAGO_ENABLED = import.meta.env.VITE_KATAGO === '1';
 
 export type Candidate = {
   x: number | null;          // null for a pass
