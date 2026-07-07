@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { deleteGame, gameOutcome, listGames } from '../data/games';
+import { deleteReviewsForGame } from '../data/reviews';
 import { listStudents } from '../data/links';
 import { foxAvailable, listFoxAccounts } from '../data/fox';
 import type { FoxAccountDoc, GameDoc, UserDoc } from '../data/model';
@@ -186,6 +187,7 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
   const remove = async (id: string) => {
     if (!window.confirm('Delete this game?')) return;
     await deleteGame(id);
+    if (user) await deleteReviewsForGame(user.uid, id);
     setGames((gs) => (gs ? gs.filter((g) => g.id !== id) : gs));
   };
 

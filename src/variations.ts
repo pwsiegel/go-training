@@ -4,7 +4,7 @@
 // is never written to Firestore. The visualization consumes `variationLines`;
 // navigation consumes `movesTo` / `nodeAtDepth`.
 
-import type { GameMove } from './data/model';
+import type { GameMove, SavedNode } from './data/model';
 
 export type TreeNode = {
   id: number;
@@ -165,4 +165,31 @@ export function variationLines(tree: GameTree): VariationLine[] {
 /** Whether `nodeId` sits off the mainline (used to tint variation moves). */
 export function isVariationNode(tree: GameTree, nodeId: number): boolean {
   return !tree.nodes[nodeId].mainline;
+}
+
+// ---------- persistence (see ReviewDoc) ----------
+
+/** The off-mainline nodes, ascending by id — the only part worth persisting
+ * (the mainline is rebuilt from the game SGF). */
+export function serializeVariations(tree: GameTree): SavedNode[] {
+  return Object.values(tree.nodes)
+    .filter((n) => !n.mainline && n.move != null && n.parent != null)
+    .map((n) => ({ id: n.id, parent: n.parent as number, move: n.move as GameMove }))
+    .sort((a, b) => a.id - b.id);
+}
+
+/** Rebuild a tree from the mainline plus saved variation nodes. Nodes are
+ * spliced in ascending-id order (so a parent always exists first); any whose
+ * parent is missing — e.g. an unexpectedly changed mainline — are dropped. */
+export function deserializeVariations(mainline: GameMove[], saved: SavedNode[]): GameTree {
+  const base = buildTree(mainline);
+  const nodes = { ...base.nodes };
+  let maxId = base.mainlineLeafId;
+  for (const s of [...saved].sort((a, b) => a.id - b.id)) {
+    if (nodes[s.id] || !nodes[s.parent]) continue;
+    nodes[s.id] = { id: s.id, parent: s.parent, move: s.move, children: [], mainline: false };
+    nodes[s.parent] = { ...nodes[s.parent], children: [...nodes[s.parent].children, s.id] };
+    if (s.id > maxId) maxId = s.id;
+  }
+  return { ...base, nodes, nextId: maxId + 1 };
 }

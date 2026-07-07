@@ -6,6 +6,7 @@
 import { collection, deleteDoc, doc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase';
 import { listGames } from './games';
+import { deleteReviewsForGames } from './reviews';
 import type { FoxAccountDoc, GameDoc } from './model';
 
 const API_BASE = import.meta.env.VITE_KATAGO_API ?? '';
@@ -79,6 +80,7 @@ export async function deleteFoxPlayer(ownerUid: string, account: FoxAccountDoc):
     for (const g of doomed.slice(i, i + 400)) batch.delete(doc(db, 'games', g.id));
     await batch.commit();
   }
+  await deleteReviewsForGames(ownerUid, new Set(doomed.map((g) => g.id)));
   await deleteDoc(accountDoc(ownerUid, account.uid));
   return doomed.length;
 }

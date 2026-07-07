@@ -14,7 +14,7 @@ npm run build
 npm run lint
 ```
 
-The **Review** page (browse + replay saved games) is always available and ships to Pages, with **KataGo analysis that runs entirely in the browser** — TensorFlow.js / WebGPU, no backend. A settings menu picks the net (b18 / b6) and playouts; net weights are served from Firebase Storage. Its games come from two sources:
+The **Review** page (browse + replay saved games) is always available and ships to Pages, with **KataGo analysis that runs entirely in the browser** — TensorFlow.js / WebGPU, no backend. A settings menu picks the net (b18 / b6) and playouts; net weights are served from Firebase Storage. Click any point on the board to branch **variations** — the same in-browser AI evaluates them like any other position — and they persist per user in a private `reviews/` object (separate from the game, so a student and a teacher keep independent variations) that reloads automatically. Its games come from two sources:
 
 - **Fox** — imported from [Fox Weiqi](https://www.foxwq.com/) by a local-only sync (the Fox API sends no CORS headers, so it can't run in the deployed app). Synced games persist to Firestore and are reviewable here on GitHub Pages.
 - **Play** — games played on the **Play** page: a full game against a human-like KataGo at a chosen rank. The opponent is the human-SL net (`b18c384nbt-humanv0`) run **in the browser** (WebGPU) — no backend — so Play ships to Pages too.
