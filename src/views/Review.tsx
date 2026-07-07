@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
-import { deleteGame, listGames } from '../data/games';
+import { deleteGame, gameOutcome, listGames } from '../data/games';
 import { listStudents } from '../data/links';
 import { foxAvailable, listFoxAccounts } from '../data/fox';
 import type { FoxAccountDoc, GameDoc, UserDoc } from '../data/model';
@@ -30,9 +30,12 @@ function resultLabel(g: GameDoc): string {
 
 /** One game as a card: the position at move 30 (or the final position if the
  * game was shorter) plus players, date, moves, and result. A missing `onDelete`
- * (e.g. a student's shared game) renders the card without the delete control. */
-function GameCard({ game, onOpen, onDelete }: {
+ * (e.g. a student's shared game) renders the card without the delete control.
+ * `outcome` (win/loss for one of the viewer's own accounts) tints the border
+ * and result. */
+function GameCard({ game, outcome, onOpen, onDelete }: {
   game: GameDoc;
+  outcome: 'win' | 'loss' | null;
   onOpen: () => void;
   onDelete?: () => void;
 }) {
@@ -41,7 +44,7 @@ function GameCard({ game, onOpen, onDelete }: {
   const info = sgfInfo(game.sgf);
   return (
     <div
-      className="game-card"
+      className={`game-card${outcome ? ` game-card--${outcome}` : ''}`}
       role="button"
       tabIndex={0}
       onClick={onOpen}
@@ -66,7 +69,10 @@ function GameCard({ game, onOpen, onDelete }: {
           {info.playerWhite} <span className="review-rank">[{info.rankWhite}]</span>
         </div>
         <div className="game-card-sub">
-          {shortDate(game.createdAt)} · {moves.length} moves · {resultLabel(game)}
+          {shortDate(game.createdAt)} · {moves.length} moves ·{' '}
+          <span className={outcome ? `game-result game-result--${outcome}` : undefined}>
+            {resultLabel(game)}
+          </span>
         </div>
       </div>
     </div>
@@ -81,6 +87,9 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
   const navigate = useNavigate();
   const [games, setGames] = useState<GameDoc[] | null>(null);
   const [accounts, setAccounts] = useState<FoxAccountDoc[]>([]);
+  // Fox uids of accounts the viewer owns — their own accounts (student view),
+  // or, in teacher view, the "my account" accounts of every linked student.
+  const [myUids, setMyUids] = useState<Set<number>>(new Set());
   const [students, setStudents] = useState<UserDoc[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [foxOk, setFoxOk] = useState(false);
@@ -95,11 +104,15 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
     if (teacherMode) {
       listStudents(uid)
         .then(async (ss) => {
-          const studentGames = dedupeById((await Promise.all(ss.map((s) => listGames(s.uid).catch(() => [])))).flat());
+          const [gameLists, accountLists] = await Promise.all([
+            Promise.all(ss.map((s) => listGames(s.uid).catch(() => []))),
+            Promise.all(ss.map((s) => listFoxAccounts(s.uid).catch(() => []))),
+          ]);
           if (!active) return;
           setStudents(ss);
           setAccounts([]);
-          setGames(studentGames);
+          setGames(dedupeById(gameLists.flat()));
+          setMyUids(new Set(accountLists.flat().filter((a) => a.isMine).map((a) => a.uid)));
           setSelected(new Set(ss.map((s) => `student:${s.uid}`)));
         })
         .catch(() => { if (active) setGames([]); });
@@ -110,6 +123,7 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
           setStudents([]);
           setAccounts(a);
           setGames(own);
+          setMyUids(new Set(a.filter((x) => x.isMine).map((x) => x.uid)));
           setSelected(new Set([LOCAL_AI, ...a.map((x) => String(x.uid))]));
         })
         .catch(() => { if (active) setGames([]); });
@@ -165,6 +179,7 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
     const [own, a] = await Promise.all([listGames(user.uid), listFoxAccounts(user.uid)]);
     setGames(own);
     setAccounts(a);
+    setMyUids(new Set(a.filter((x) => x.isMine).map((x) => x.uid)));
     setSelected((s) => new Set([...s, ...a.map((x) => String(x.uid))]));
   };
 
@@ -204,6 +219,7 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
             <GameCard
               key={g.id}
               game={g}
+              outcome={gameOutcome(g, myUids)}
               onOpen={() => navigate(`/review/${g.id}`)}
               onDelete={teacherMode ? undefined : () => remove(g.id)}
             />

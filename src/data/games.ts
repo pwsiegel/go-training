@@ -6,7 +6,22 @@
 
 import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
+import { sgfInfo } from '../sgf';
 import type { GameDoc } from './model';
+
+/** Win/loss of a Fox game from the perspective of a set of the owner's own
+ * account uids. Null when neither participant is one of "my" accounts, or the
+ * SGF result isn't a plain Black/White win (e.g. void, unfinished). */
+export function gameOutcome(game: GameDoc, myUids: Set<number>): 'win' | 'loss' | null {
+  const myColor =
+    game.blackUid != null && myUids.has(game.blackUid) ? 'B'
+      : game.whiteUid != null && myUids.has(game.whiteUid) ? 'W'
+        : null;
+  if (!myColor) return null;
+  const winner = sgfInfo(game.sgf).result[0];
+  if (winner !== 'B' && winner !== 'W') return null;
+  return winner === myColor ? 'win' : 'loss';
+}
 
 export async function saveGame(game: Omit<GameDoc, 'id'>): Promise<GameDoc> {
   const id = doc(collection(db, 'games')).id;

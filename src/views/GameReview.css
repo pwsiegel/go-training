@@ -27,6 +27,25 @@
   font-size: 0.9rem;
 }
 
+/* Win/loss accent for a game one of the viewer's own accounts played. */
+.gr--win { border-top: 3px solid var(--success); }
+.gr--loss { border-top: 3px solid var(--error); }
+
+.gr-result--win { color: var(--success-strong); }
+.gr-result--loss { color: var(--error-strong); }
+
+.gr-outcome {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.gr-outcome--win { color: var(--success-strong); background: var(--success-bg); }
+.gr-outcome--loss { color: var(--error-strong); background: var(--error-bg); }
+
 .gr-analyze-controls {
   position: relative;
   display: flex;

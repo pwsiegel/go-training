@@ -113,4 +113,5 @@ export type FoxAccountDoc = {
   username: string;
   lastChessId: string;   // newest synced game; sync pulls only games newer than this
   lastSyncedAt: number;  // ms epoch of the last successful sync
+  isMine?: boolean;      // one of the owner's own accounts (vs. an imported third party)
 };
