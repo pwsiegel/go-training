@@ -198,7 +198,26 @@ type AnalyzeArgs = {
   // The next move to always eval, with the board after it played (for the
   // fallback value eval when the search never visited that move).
   evalNext?: { move: { x: number; y: number }; stones: Stone[] } | null;
+  // Setup stones not in the move list (e.g. a tsumego's initial position); the
+  // local backend rebuilds from moves, so it needs these separately. Default [].
+  initialStones?: Stone[];
+  // Restrict the search to a rectangle (tsumego explore hints). Both engines
+  // support it — the browser via region-of-interest, the local via allow-moves.
+  region?: { colMin: number; colMax: number; rowMin: number; rowMax: number } | null;
 };
+
+function emptyPointsIn(
+  region: { colMin: number; colMax: number; rowMin: number; rowMax: number }, stones: Stone[],
+): { x: number; y: number }[] {
+  const occ = new Set(stones.map((s) => `${s.x},${s.y}`));
+  const pts: { x: number; y: number }[] = [];
+  for (let y = region.rowMin; y <= region.rowMax; y += 1) {
+    for (let x = region.colMin; x <= region.colMax; x += 1) {
+      if (!occ.has(`${x},${y}`)) pts.push({ x, y });
+    }
+  }
+  return pts;
+}
 
 /** Analyze one position with the given model at `visits` playouts. Resolves to
  * null when superseded/canceled. When `evalNext` is set, the result carries a
@@ -278,6 +297,9 @@ async function analyzeBrowser(args: AnalyzeArgs): Promise<WebAnalysis | null> {
       rules: 'chinese',
       visits: args.visits,
       topK: 8,
+      regionOfInterest: args.region
+        ? { xMin: args.region.colMin, xMax: args.region.colMax, yMin: args.region.rowMin, yMax: args.region.rowMax }
+        : null,
       reportDuringSearchEveryMs: args.onProgress ? 120 : undefined,
       onProgress: args.onProgress ? (p) => args.onProgress!(toWeb(p)) : undefined,
     });
@@ -316,10 +338,11 @@ function mapBackend(a: BackendAnalysis, toPlay: Color): WebAnalysis {
 
 async function analyzeLocal(args: AnalyzeArgs): Promise<WebAnalysis | null> {
   const base: Omit<AnalyzeParams, 'maxVisits'> = {
-    initialStones: [],
+    initialStones: (args.initialStones ?? []).map((s) => ({ x: s.x, y: s.y, color: s.color })),
     moves: args.moves.map((m) => ({ color: m.color, x: m.x, y: m.y })),
     initialPlayer: args.moves[0]?.color ?? 'B',
     toPlay: args.toPlay,
+    allowMoves: args.region ? emptyPointsIn(args.region, args.stones) : undefined,
     signal: args.signal,
   };
   try {

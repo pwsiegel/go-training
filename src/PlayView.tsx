@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Board, type Annotation } from './Board';
+import { Spinner } from './Spinner';
 import { playMove, type PlayError } from './goRules';
 import type { Color, Stone } from './types';
 import './PlayView.css';
-import { analyze, KATAGO_ENABLED, type Analysis, type Region } from './data/katago';
+import { katagoBackendAvailable, type Region } from './data/katago';
+import { analyzePosition, BROWSER_MODELS, LOCAL_MODEL, type WebAnalysis } from './katago/webEngine';
+import { useEngineLease } from './katago/engineLease';
 
 type Tool = 'play' | 'addB' | 'addW' | 'region' | 'number' | 'letter' | 'triangle' | 'square';
 
@@ -62,9 +65,27 @@ export function PlayView({
   const [letterCounter, setLetterCounter] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [aiOn, setAiOn] = useState(false);
-  const [aiResult, setAiResult] = useState<{ key: string; data?: Analysis; error?: string } | null>(null);
+  const [aiResult, setAiResult] = useState<{ key: string; data?: WebAnalysis; error?: string } | null>(null);
   const [region, setRegion] = useState<Region | null>(null);
   const [regionAnchor, setRegionAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [modelId, setModelId] = useState(BROWSER_MODELS[0].id);
+  const [localAvailable, setLocalAvailable] = useState(false);
+
+  // Browser models (WebGPU, ship to Pages) + the native backend when reachable.
+  const models = useMemo(
+    () => (localAvailable ? [...BROWSER_MODELS, LOCAL_MODEL] : BROWSER_MODELS),
+    [localAvailable],
+  );
+  const model = models.find((m) => m.id === modelId) ?? models[0];
+  // The browser engine is single-instance across tabs/windows (see engineLease).
+  const engineStatus = useEngineLease(aiOn && model.kind === 'browser');
+  const engineReady = model.kind !== 'browser' || engineStatus === 'active';
+
+  useEffect(() => {
+    let active = true;
+    katagoBackendAvailable().then((ok) => { if (active) setLocalAvailable(ok); });
+    return () => { active = false; };
+  }, []);
 
   const { stones, koPoint } = useMemo(
     () => replayHistory(baseStones, history),
@@ -78,19 +99,6 @@ export function PlayView({
     return () => clearTimeout(t);
   }, [error]);
 
-  // Empty points inside the region — the candidate set for region-restricted search.
-  const allowMoves = useMemo(() => {
-    if (!region) return null;
-    const occ = new Set(stones.map((s) => `${s.x},${s.y}`));
-    const pts: { x: number; y: number }[] = [];
-    for (let y = region.rowMin; y <= region.rowMax; y += 1) {
-      for (let x = region.colMin; x <= region.colMax; x += 1) {
-        if (!occ.has(`${x},${y}`)) pts.push({ x, y });
-      }
-    }
-    return pts;
-  }, [region, stones]);
-
   // Key the analysis on the actual query inputs — setup + moves (so ko/superko
   // differences register) + region + side to move.
   const posKey = useMemo(() => {
@@ -98,59 +106,56 @@ export function PlayView({
       ? `${region.colMin},${region.colMax},${region.rowMin},${region.rowMax}` : 'full';
     const b = baseStones.map((s) => `${s.x},${s.y}${s.color}`).join(';');
     const h = history.map((m) => `${m.color}${m.x},${m.y}`).join(';');
-    return `${nextColor}|${r}|${b}|${h}`;
-  }, [baseStones, history, region, nextColor]);
+    return `${model.id}|${nextColor}|${r}|${b}|${h}`;
+  }, [baseStones, history, region, nextColor, model.id]);
 
   useEffect(() => {
-    if (!aiOn) return;
+    if (!aiOn || !engineReady) return;
     const ctrl = new AbortController();
     let active = true;
-    analyze({
+    analyzePosition({
+      model,
+      stones,
       initialStones: baseStones,
       moves: history,
-      initialPlayer: 'B',
       toPlay: nextColor,
-      allowMoves,
+      positionId: posKey,
+      visits: model.defaultVisits,
+      region,
       signal: ctrl.signal,
     })
-      .then((a) => { if (active) setAiResult({ key: posKey, data: a }); })
-      .catch(() => {
-        if (active && !ctrl.signal.aborted) {
-          setAiResult({ key: posKey, error: 'KataGo engine offline — is `make api-katago` running?' });
-        }
+      .then((a) => { if (active && a) setAiResult({ key: posKey, data: a }); })
+      .catch((e) => {
+        if (!active || ctrl.signal.aborted) return;
+        setAiResult({
+          key: posKey,
+          error: model.kind === 'local'
+            ? 'KataGo backend offline — is `make api` running?'
+            : (e instanceof Error ? e.message : 'analysis failed'),
+        });
       });
     return () => { active = false; ctrl.abort(); };
-  }, [aiOn, posKey, baseStones, history, nextColor, allowMoves]);
+  }, [aiOn, engineReady, model, posKey, stones, baseStones, history, nextColor, region]);
 
   // Use the result only if it's for the current position; else we're still loading.
   const current = aiOn && aiResult?.key === posKey ? aiResult : null;
   const analysis = current?.data ?? null;
   const aiError = current?.error ?? null;
-  const aiLoading = aiOn && !current;
+  const aiLoading = aiOn && engineReady && !current && !aiError;
 
   // Near-optimal moves: within ~½ point of the best, ignoring low-visit noise.
-  // score_lead is Black's (reportAnalysisWinratesAs=BLACK), so flip it to the
-  // side-to-move's perspective before ranking — otherwise "best" is backwards
-  // on White's turn.
+  // WebAnalysis carries side-to-move pointsLost (best = 0) already.
   const aiCandidates = useMemo(() => {
     if (!analysis) return undefined;
-    const sign = analysis.root.current_player === 'B' ? 1 : -1;
-    const floor = Math.max(8, analysis.root.visits * 0.01);
-    const onBoard = analysis.moves
-      .filter((m) => m.x !== null && m.y !== null && m.visits >= floor)
-      .map((m) => ({ x: m.x as number, y: m.y as number, lead: sign * m.score_lead }));
-    if (onBoard.length === 0) return [];
-    const best = Math.max(...onBoard.map((m) => m.lead));
-    return onBoard
-      .map((m) => ({ x: m.x, y: m.y, loss: best - m.lead }))
-      .filter((c) => c.loss <= 0.5);
+    const floor = Math.max(8, analysis.rootVisits * 0.01);
+    return analysis.moves
+      .filter((m) => m.visits >= floor && m.pointsLost <= 0.5)
+      .map((m) => ({ x: m.x, y: m.y, loss: m.pointsLost }));
   }, [analysis]);
 
-  // Root winrate/score are already Black's perspective (reportAnalysisWinratesAs
-  // = BLACK) — a fixed reference — so just read off who's ahead. No per-turn
-  // adjustment; doing that is what made the leader flip every move.
-  const blackLead = analysis ? analysis.root.score_lead : 0;
-  const blackWinrate = analysis ? analysis.root.winrate : 0;
+  // Root score/winrate are Black's perspective — read off who's ahead directly.
+  const blackLead = analysis ? analysis.rootScoreLead : 0;
+  const blackWinrate = analysis ? analysis.rootWinrate : 0;
   const aiEval = analysis
     ? {
         leader: blackLead >= 0 ? 'Black' : 'White',
@@ -257,31 +262,41 @@ export function PlayView({
                   ? <span>{regionAnchor ? 'Click the opposite corner' : 'Click two corners to bound the AI region'}</span>
                   : <span>{nextColor === 'B' ? 'Black' : 'White'} to play</span>}
         </div>
-        {KATAGO_ENABLED && aiOn && (
+        {aiOn && (
           <div className="play-status">
-            {aiError
-              ? <span className="play-error">{aiError}</span>
-              : aiEval
-                ? <span>KataGo: {aiEval.leader === 'Black' ? 'B' : 'W'}+{aiEval.lead.toFixed(1)} · {(aiEval.winrate * 100).toFixed(0)}%</span>
-                : aiLoading ? <span>analyzing…</span> : null}
+            {engineStatus === 'waiting'
+              ? <span className="play-ai-wait">KataGo AI is running in another tab or window — turn it off there (or close it) to use it here.</span>
+              : aiError
+                ? <span className="play-error">{aiError}</span>
+                : aiEval
+                  ? <span>KataGo: {aiEval.leader === 'Black' ? 'B' : 'W'}+{aiEval.lead.toFixed(1)} · {(aiEval.winrate * 100).toFixed(0)}%</span>
+                  : aiLoading ? <Spinner label="Analyzing…" /> : null}
           </div>
         )}
       </div>
       <div className="play-tools" role="toolbar" aria-label="Play mode tools">
-        {KATAGO_ENABLED && (
-          <>
-            <ToolButton active={aiOn} onClick={() => setAiOn((v) => !v)}>
-              AI hints <span className="tool-counter">{aiLoading ? '…' : aiOn ? 'on' : 'off'}</span>
-            </ToolButton>
-            <ToolButton active={tool === 'region'} onClick={() => { setAiOn(true); setTool('region'); }}>
-              Region <span className="tool-counter">{region ? 'set' : 'off'}</span>
-            </ToolButton>
-            {region && (
-              <button type="button" className="play-tool" onClick={clearRegion}>Clear region</button>
-            )}
-            <div className="play-tools-divider" />
-          </>
+        <ToolButton active={aiOn} onClick={() => setAiOn((v) => !v)}>
+          AI hints <span className="tool-counter">{aiLoading ? '…' : aiOn ? 'on' : 'off'}</span>
+        </ToolButton>
+        {aiOn && models.length > 1 && (
+          <select
+            className="play-model"
+            value={modelId}
+            onChange={(e) => setModelId(e.target.value)}
+            aria-label="Analysis engine"
+          >
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>{m.id === 'local' ? 'Native (Metal)' : `${m.id} · WebGPU`}</option>
+            ))}
+          </select>
         )}
+        <ToolButton active={tool === 'region'} onClick={() => { setAiOn(true); setTool('region'); }}>
+          Region <span className="tool-counter">{region ? 'set' : 'off'}</span>
+        </ToolButton>
+        {region && (
+          <button type="button" className="play-tool" onClick={clearRegion}>Clear region</button>
+        )}
+        <div className="play-tools-divider" />
         <ToolButton active={tool === 'play'} onClick={() => setTool('play')}>Play</ToolButton>
         <ToolButton active={tool === 'addB'} onClick={() => setTool('addB')}>Add black stones</ToolButton>
         <ToolButton active={tool === 'addW'} onClick={() => setTool('addW')}>Add white stones</ToolButton>
