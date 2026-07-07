@@ -115,3 +115,21 @@ export type FoxAccountDoc = {
   lastSyncedAt: number;  // ms epoch of the last successful sync
   isMine?: boolean;      // one of the owner's own accounts (vs. an imported third party)
 };
+
+/** One off-mainline node of a saved variation tree (see variations.ts). The
+ * mainline is rebuilt from the game SGF, so only these are persisted. */
+export type SavedNode = { id: number; parent: number; move: GameMove };
+
+/** `reviews/{reviewId}` — a user's saved variation tree for a game. Owner-only;
+ * a student's and a teacher's reviews of the same game are independent objects.
+ * The schema allows multiple reviews per (owner, game) though only one is
+ * surfaced today. Only off-mainline nodes are stored; the analyzed-score cache
+ * is recomputed on load, never persisted. */
+export type ReviewDoc = {
+  id: string;
+  ownerUid: string;
+  gameId: string;
+  nodes: SavedNode[];
+  createdAt: number;
+  updatedAt: number;
+};
