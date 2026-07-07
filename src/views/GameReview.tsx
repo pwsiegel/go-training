@@ -14,6 +14,7 @@ import {
   pathIds, pruneSubtree, serializeVariations, variationLines, type GameTree,
 } from '../variations';
 import { analyzePosition, scoreTrajectory, BROWSER_MODELS, LOCAL_MODEL, type WebAnalysis } from '../katago/webEngine';
+import { useEngineLease } from '../katago/engineLease';
 import { katagoBackendAvailable } from '../data/katago';
 import { Spinner } from '../Spinner';
 import { ScoreGraph } from '../ScoreGraph';
@@ -89,6 +90,10 @@ export function GameReview() {
   );
   const model = models.find((m) => m.id === modelId) ?? models[0];
   const visits = visitsByModel[model.id] ?? model.defaultVisits;
+  // Only one context may drive the browser GPU engine at a time (see engineLease).
+  // The native model doesn't touch browser VRAM, so it needs no lease.
+  const engineStatus = useEngineLease(analyzeOn && model.kind === 'browser');
+  const engineReady = model.kind !== 'browser' || engineStatus === 'active';
 
   useEffect(() => {
     let on = true;
@@ -257,7 +262,7 @@ export function GameReview() {
   // stale search via the engine's 'interactive' group; the local backend is
   // canceled via the abort signal when scrubbing to a new position.
   useEffect(() => {
-    if (!analyzeOn || !game || !tree) return;
+    if (!analyzeOn || !game || !tree || !engineReady) return;
     const forCursor = cursor;
     const forNode = nodeAtDepth(tree, line, cursor);
     const key = `${forNode}:${model.id}:${visits}`;
@@ -318,7 +323,7 @@ export function GameReview() {
         });
     }, 300);
     return () => { active = false; clearTimeout(timer); ctrl.abort(); };
-  }, [analyzeOn, model, visits, game, id, tree, line, lineMoves, cursor, shown, toPlay]);
+  }, [analyzeOn, engineReady, model, visits, game, id, tree, line, lineMoves, cursor, shown, toPlay]);
 
   // Full-game score curve over the (stable) mainline. Runs once per game and
   // fills the node-keyed cache; branching a variation can't abort it (it doesn't
@@ -326,7 +331,7 @@ export function GameReview() {
   // id equals its depth (see buildTree), so scores are keyed by depth directly.
   const trajSig = `${model.id}:${visits}`;
   useEffect(() => {
-    if (!analyzeOn || !game || model.kind !== 'browser') return;
+    if (!analyzeOn || !game || model.kind !== 'browser' || !engineReady) return;
     if (trajRanRef.current) return;   // ran once this game; settings changes use Rerun
     trajRanRef.current = true;
     setTrajFor(trajSig);
@@ -371,7 +376,7 @@ export function GameReview() {
       .catch(() => { trajRanRef.current = false; /* aborted / engine error — allow a later run */ })
       .finally(() => { if (active) setTrajRunning(false); });
     return () => { active = false; ctrl.abort(); };
-  }, [analyzeOn, game, model, visits, mainlineMoves, batchSize, rerunToken, trajSig]);
+  }, [analyzeOn, engineReady, game, model, visits, mainlineMoves, batchSize, rerunToken, trajSig]);
 
   if (loading) return <div className="center-screen"><Spinner /></div>;
   if (!game || !tree) {
@@ -639,7 +644,11 @@ export function GameReview() {
 
       {analyzeOn && (
         <div className="gr-analysis">
-          {running ? <Spinner label="Analyzing…" />
+          {engineStatus === 'waiting' ? (
+            <span className="gr-analyze-wait">
+              KataGo AI is running in another tab or window — turn it off there (or close it) to use it here.
+            </span>
+          ) : running ? <Spinner label="Analyzing…" />
             : analysisErr ? <span className="gr-analyze-err">{analysisErr}</span>
               : currentAnalysis ? (
                 <>

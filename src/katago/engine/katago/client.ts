@@ -399,7 +399,13 @@ export function getKataGoEngineClient(): KataGoEngineClient {
   return singleton;
 }
 
-export function resetKataGoEngineClientForTests(): void {
+/** Terminate the engine worker and drop the singleton, releasing its WebGPU
+ * device. The next getKataGoEngineClient() lazily spawns a fresh worker. */
+export function disposeKataGoEngineClient(): void {
   singleton?.dispose();
   singleton = null;
+}
+
+export function resetKataGoEngineClientForTests(): void {
+  disposeKataGoEngineClient();
 }

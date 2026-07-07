@@ -247,6 +247,7 @@
 }
 
 .gr-loss { color: var(--error); }
+.gr-analyze-wait { color: var(--accent); font-weight: 500; }
 
 .gr-graph { position: relative; }
 

@@ -4,6 +4,7 @@ import { Board, type Annotation } from '../Board';
 import { playMove, replay, type PlayError } from '../goRules';
 import type { Color } from '../types';
 import { genmoveBrowser } from '../katago/webEngine';
+import { useEngineLease } from '../katago/engineLease';
 import { genmove, katagoBackendAvailable } from '../data/katago';
 import { saveGame } from '../data/games';
 import type { GameDoc } from '../data/model';
@@ -60,6 +61,9 @@ export function Play() {
   const [alertThreshold, setAlertThreshold] = useState(5);
   const [moveDelay, setMoveDelay] = useState(1);   // seconds of minimum "think time"
   const [warmed, setWarmed] = useState(humanNetWarmed);
+  // Hold the browser-engine lease while a browser game is in progress; only one
+  // tab/window may drive the GPU at a time. The native engine needs no lease.
+  const engineStatus = useEngineLease(phase === 'playing' && engine === 'browser');
 
   const [myColor, setMyColor] = useState<Color>('B');
   const [history, setHistory] = useState<Move[]>([]);
@@ -160,6 +164,10 @@ export function Play() {
       return () => { active = false; if (timer) clearTimeout(timer); };
     }
 
+    // Wait for the browser-engine lease before sampling a move (a banner tells
+    // the user another tab/window holds it). Re-runs when the lease is granted.
+    if (engine === 'browser' && engineStatus !== 'active') return () => { active = false; };
+
     const ctrl = new AbortController();
     const startedAt = Date.now();
     const gen = engine === 'local'
@@ -196,7 +204,7 @@ export function Play() {
         if (active && !ctrl.signal.aborted) setOffline(true);
       });
     return () => { active = false; ctrl.abort(); if (timer) clearTimeout(timer); };
-  }, [phase, atLive, liveNextColor, myColor, history, mainline, onMainline, stones, koPoint, rank, temperature, engine, moveDelay, retry]);
+  }, [phase, atLive, liveNextColor, myColor, history, mainline, onMainline, stones, koPoint, rank, temperature, engine, engineStatus, moveDelay, retry]);
 
   const start = () => {
     const resolved: Color = colorChoice === 'random'
@@ -401,7 +409,10 @@ export function Play() {
   const statusText = ended
     ? 'Game over'
     : !atLive ? 'Reviewing an earlier position'
-      : thinking ? (engine === 'browser' && !warmed ? 'Model loading…' : 'KataGo is thinking…')
+      : thinking ? (
+        engine === 'browser' && engineStatus === 'waiting' ? 'Waiting for another window…'
+          : engine === 'browser' && !warmed ? 'Model loading…'
+            : 'KataGo is thinking…')
         : `Your move (${myColor === 'B' ? 'Black' : 'White'})`;
   const scoreText = viewScore === null ? null : `${viewScore >= 0 ? 'B' : 'W'}+${Math.abs(viewScore).toFixed(1)}`;
 
@@ -410,6 +421,11 @@ export function Play() {
       <div className="play-board">
         {alerting && (
           <div className="play-alert">You're behind by {behindBy!.toFixed(1)} points — rewind on the graph and try a different line.</div>
+        )}
+        {engineStatus === 'waiting' && (
+          <div className="play-blocked">
+            KataGo AI is running in another tab or window — turn it off there (or close it) to play here.
+          </div>
         )}
         {showGraph && (
           <ScoreGraph points={playPoints} total={history.length} cursor={viewIndex} onSeek={seek} />
