@@ -16,7 +16,6 @@ import { Solve } from './views/Solve';
 import { Submissions } from './views/Submissions';
 import { SubmissionDetail } from './views/SubmissionDetail';
 import { History } from './views/History';
-import { Teacher } from './views/Teacher';
 import { ProfileModal } from './views/Profile';
 import { Play } from './views/Play';
 import { Review } from './views/Review';
@@ -39,29 +38,19 @@ function Sidebar({ teacherMode, canToggle, onToggle }: {
   const [showProfile, setShowProfile] = useState(false);
   return (
     <aside className="sidebar">
-      <Link to={teacherMode ? '/teacher/submissions' : '/'} className="sidebar-brand">Go training</Link>
+      <Link to={teacherMode ? '/submissions' : '/'} className="sidebar-brand">Go training</Link>
+      {/* One nav definition for both roles: teacher view just hides the
+          player-only items. Submissions/History route to the role's own pages. */}
       <nav className="sidebar-links" aria-label="Primary">
-        {teacherMode ? (
-          <>
-            <div className="sidebar-group">
-              <span className="sidebar-group-label">Tsumego</span>
-              <NavLink to="/teacher/submissions" className={subNavClass}>Submissions</NavLink>
-              <NavLink to="/teacher/history" className={subNavClass}>History</NavLink>
-            </div>
-            <NavLink to="/review" className={navClass}>Review games</NavLink>
-          </>
-        ) : (
-          <>
-            <NavLink to="/" end className={navClass}>Home</NavLink>
-            <div className="sidebar-group">
-              <NavLink to="/library" className={navClass}>Solve tsumego</NavLink>
-              <NavLink to="/submissions" end className={subNavClass}>Submissions</NavLink>
-              <NavLink to="/history" className={subNavClass}>History</NavLink>
-            </div>
-            <NavLink to="/play" className={navClass}>Play AI</NavLink>
-            <NavLink to="/review" className={navClass}>Review games</NavLink>
-          </>
-        )}
+        {!teacherMode && <NavLink to="/" end className={navClass}>Home</NavLink>}
+        <div className="sidebar-group">
+          <span className="sidebar-group-label">Solve tsumego</span>
+          {!teacherMode && <NavLink to="/library" className={subNavClass}>Library</NavLink>}
+          <NavLink to="/submissions" end className={subNavClass}>Submissions</NavLink>
+          <NavLink to="/history" className={subNavClass}>History</NavLink>
+        </div>
+        {!teacherMode && <NavLink to="/play" className={navClass}>Play AI</NavLink>}
+        <NavLink to="/review" className={navClass}>Review games</NavLink>
       </nav>
       <div className="sidebar-foot">
         {profile?.displayName && (
@@ -110,12 +99,12 @@ export default function App() {
   const toggleMode = () => {
     const next = !teacherMode;
     setOverride(next);
-    navigate(next ? '/teacher/submissions' : '/');
+    navigate(next ? '/submissions' : '/');
   };
 
   // The batch drawer ("current submission") belongs to the tsumego workflow only.
   const effectivePath = (backgroundLocation ?? location).pathname;
-  const showBatch = /^\/(library|submissions|history|solve)(\/|$)/.test(effectivePath);
+  const showBatch = !teacherMode && /^\/(library|submissions|history|solve)(\/|$)/.test(effectivePath);
 
   return (
     <BatchProvider>
@@ -123,19 +112,19 @@ export default function App() {
         <Sidebar teacherMode={teacherMode} canToggle={canTeach || profile.role === 'teacher'} onToggle={toggleMode} />
         <main className="app-main">
           <Routes location={backgroundLocation ?? location}>
-            <Route path="/" element={teacherMode ? <Navigate to="/teacher/submissions" replace /> : <Home />} />
+            <Route path="/" element={teacherMode ? <Navigate to="/submissions" replace /> : <Home />} />
             <Route path="/library" element={<Library />} />
             <Route path="/library/:slug" element={<CollectionView />} />
             <Route path="/solve/:slug/:id" element={<Solve />} />
-            <Route path="/submissions" element={<Submissions />} />
+            <Route path="/submissions" element={<Submissions teacherMode={teacherMode} />} />
             <Route path="/submissions/:id" element={<SubmissionDetail />} />
-            <Route path="/history" element={<History />} />
+            <Route path="/history" element={<History teacherMode={teacherMode} />} />
             <Route path="/play" element={<Play />} />
             <Route path="/review" element={<Review teacherMode={teacherMode} />} />
             <Route path="/review/:id" element={<GameReview />} />
-            <Route path="/teacher" element={<Navigate to="/teacher/submissions" replace />} />
-            <Route path="/teacher/submissions" element={<Teacher mode="pending" />} />
-            <Route path="/teacher/history" element={<Teacher mode="history" />} />
+            <Route path="/teacher" element={<Navigate to="/submissions" replace />} />
+            <Route path="/teacher/submissions" element={<Navigate to="/submissions" replace />} />
+            <Route path="/teacher/history" element={<Navigate to="/history" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
           {backgroundLocation && (

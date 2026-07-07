@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
+import { useAuth } from '../auth';
 import { Spinner } from '../Spinner';
 import { ProblemCard } from '../ProblemCard';
 import { toStones } from '../stones';
@@ -12,6 +13,7 @@ const STATE_LABEL: Record<string, string> = { pending: 'Pending review', returne
 
 export function SubmissionDetail() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
   const location = useLocation();
   const [view, setView] = useState<SubmissionView | null>(null);
   const [problems, setProblems] = useState<Record<string, LibProblem | null>>({});
@@ -58,7 +60,7 @@ export function SubmissionDetail() {
           <span className={`submissions-state state-${view.state}`}>{STATE_LABEL[view.state]}</span>
           {' '}· submitted {new Date(view.submission.sentAt).toLocaleString()} · {view.items.length} problem{view.items.length === 1 ? '' : 's'}
         </p>
-        {view.state === 'returned' && (
+        {view.state === 'returned' && view.submission.studentUid === user?.uid && (
           <div style={{ marginTop: '0.75rem' }}>
             <button className="submissions-submit-btn" onClick={() => ackSubmission(view.submission.id).then(refresh)}>
               Mark as read

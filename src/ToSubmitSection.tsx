@@ -10,7 +10,7 @@ import { problemIndex, type ProblemIndex } from './data/library';
 import type { AttemptDoc, UserDoc } from './data/model';
 import './Submissions.css';
 
-/** The "To submit" outbox — shared by the Submissions page and Home. Backed by
+/** The pending-submissions outbox — shared by the Submissions page and Home. Backed by
  * the batch context so it updates live as problems are saved. */
 export function ToSubmitSection() {
   const { user } = useAuth();
@@ -72,7 +72,7 @@ export function ToSubmitSection() {
 
   return (
     <section className="home-section">
-      <div className="section-heading"><h2>To submit</h2></div>
+      <div className="section-heading"><h2>Pending submissions</h2></div>
       <div className="section-body">
         {batch.length === 0
           ? <p className="dim">No saved problems. Solve problems in the <Link to="/library">library</Link> and hit Save.</p>

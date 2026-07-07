@@ -1,38 +1,53 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { Spinner } from '../Spinner';
 import { ProblemCard } from '../ProblemCard';
+import { FilterChips } from '../FilterChips';
 import { toStones } from '../stones';
-import { loadStudentData, type StudentData, type SubmissionItem } from '../data/study';
-import { listTeachers } from '../data/links';
+import { loadStudentData, loadTeacherReview, type SubmissionItem, type SubmissionView } from '../data/study';
+import { listStudents, listTeachers } from '../data/links';
 import { problemIndex, type ProblemIndex } from '../data/library';
 import type { AttemptDoc, UserDoc } from '../data/model';
 import '../Submissions.css';
+
 const GROUPS_PER_PAGE = 8;
 const ITEMS_PER_PAGE = 60;
 
-export function History() {
+/** Graded-problem history. Player view: your own reviewed problems, with a
+ * Retry queue. Teacher view: the problems you've graded for your students,
+ * filterable by student. Both share the By-submission / View-all toggle. */
+export function History({ teacherMode = false }: { teacherMode?: boolean }) {
   const { user } = useAuth();
   const uid = user!.uid;
   const location = useLocation();
-  const [data, setData] = useState<StudentData | null>(null);
+  const [subs, setSubs] = useState<SubmissionView[] | null>(null);
+  const [latestAttemptAt, setLatestAttemptAt] = useState<Map<string, number>>(new Map());
   const [index, setIndex] = useState<ProblemIndex | null>(null);
-  const [teachers, setTeachers] = useState<UserDoc[] | null>(null);
+  const [people, setPeople] = useState<UserDoc[]>([]); // teachers (player) or students (teacher)
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<'grouped' | 'flat'>('grouped');
   const [page, setPage] = useState(0);
 
   const [prevMode, setPrevMode] = useState(mode);
   if (mode !== prevMode) { setPrevMode(mode); setPage(0); }
 
-  const refresh = useCallback(() => {
-    loadStudentData(uid).then(setData);
-    listTeachers(uid).then(setTeachers);
-  }, [uid]);
-  useEffect(refresh, [refresh]);
+  useEffect(() => {
+    if (teacherMode) {
+      listStudents(uid).then(async (ss) => {
+        const all = (await Promise.all(ss.map((s) => loadTeacherReview(s.uid, uid)))).flat();
+        setPeople(ss);
+        setSelected(new Set(ss.map((s) => s.uid)));
+        setSubs(all);
+      });
+    } else {
+      loadStudentData(uid).then((d) => { setSubs(d.submissions); setLatestAttemptAt(d.latestAttemptAt); });
+      listTeachers(uid).then(setPeople);
+    }
+  }, [uid, teacherMode]);
   useEffect(() => { problemIndex().then(setIndex); }, []);
 
-  const teacherName = (tuid: string) => teachers?.find((t) => t.uid === tuid)?.displayName ?? 'teacher';
+  const nameOf = (id: string) => people.find((p) => p.uid === id)?.displayName ?? (teacherMode ? 'student' : 'teacher');
   const solveHref = (a: AttemptDoc) => {
     const slug = index?.slugByCollection.get(index?.byId.get(a.problemId)?.collection ?? a.collection);
     return slug ? `/solve/${slug}/${a.problemId}` : null;
@@ -42,25 +57,32 @@ export function History() {
       const slug = index?.slugByCollection.get(index?.byId.get(it.attempt.problemId)?.collection ?? it.attempt.collection);
       return slug ? { slug, id: it.attempt.problemId } : null;
     }).filter((n): n is { slug: string; id: string } => n !== null);
+  const isRetried = (it: SubmissionItem) => (latestAttemptAt.get(it.attempt.problemId) ?? 0) > it.attempt.createdAt;
 
   const reviewedSubs = useMemo(
-    () => (data?.submissions ?? []).filter((s) => s.items.some((it) => it.verdict)),
-    [data],
+    () => (subs ?? [])
+      .filter((s) => s.items.some((it) => it.verdict))
+      .filter((s) => !teacherMode || selected.has(s.submission.studentUid)),
+    [subs, teacherMode, selected],
   );
 
+  // Retry queue is a player concept — the latest not-yet-reattempted wrong answers.
   const retryQueue = useMemo(() => {
-    if (!data) return [] as SubmissionItem[];
+    if (teacherMode || !subs) return [] as SubmissionItem[];
     const latest = new Map<string, SubmissionItem>();
-    for (const s of data.submissions) for (const it of s.items) {
+    for (const s of subs) for (const it of s.items) {
       if (!it.verdict) continue;
       const prev = latest.get(it.attempt.problemId);
       if (!prev || it.attempt.createdAt > prev.attempt.createdAt) latest.set(it.attempt.problemId, it);
     }
     return [...latest.values()].filter((it) =>
-      it.verdict!.verdict !== 'correct' && (data.latestAttemptAt.get(it.attempt.problemId) ?? 0) <= it.attempt.createdAt);
-  }, [data]);
+      it.verdict!.verdict !== 'correct' && (latestAttemptAt.get(it.attempt.problemId) ?? 0) <= it.attempt.createdAt);
+  }, [subs, teacherMode, latestAttemptAt]);
 
-  if (data === null) return <div className="submissions"><Spinner /></div>;
+  const toggle = (key: string) =>
+    setSelected((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+
+  if (subs === null) return <div className="submissions"><Spinner /></div>;
 
   const retryHref = retryQueue[0] ? solveHref(retryQueue[0].attempt) : null;
   const flatItems = reviewedSubs.flatMap((s) => s.items.filter((it) => it.verdict));
@@ -71,6 +93,14 @@ export function History() {
 
   return (
     <div className="submissions">
+      {teacherMode && people.length > 0 && (
+        <FilterChips
+          chips={people.map((s) => ({ key: s.uid, label: s.displayName }))}
+          selected={selected}
+          onToggle={toggle}
+          label="Filter by student"
+        />
+      )}
       <section className="home-section">
         <div className="section-heading">
           <h2>History</h2>
@@ -89,40 +119,45 @@ export function History() {
           )}
         </div>
         <div className="section-body">
-      {reviewedSubs.length === 0 ? <p className="dim">Nothing graded yet.</p>
-        : mode === 'flat'
-          ? (() => {
-              const items = flatItems.slice(p * ITEMS_PER_PAGE, (p + 1) * ITEMS_PER_PAGE);
-              const nav = navOf(items);
-              return (
-                <ul className="problem-card-grid">
-                  {items.map((it) => (
-                    <ReviewTile key={it.attempt.id} item={it} index={index} nav={nav}
-                      retried={isRetried(it, data)} href={solveHref(it.attempt)} />
-                  ))}
-                </ul>
-              );
-            })()
-          : <div className="reviewed-groups">
-              {reviewedSubs.slice(p * GROUPS_PER_PAGE, (p + 1) * GROUPS_PER_PAGE).map((s) => {
-                const items = s.items.filter((it) => it.verdict);
-                const nav = navOf(items);
-                return (
-                  <section key={s.submission.id} className="reviewed-group">
-                    <h3 className="reviewed-group-header">
-                      <span>Submitted {new Date(s.submission.sentAt).toLocaleString()} · reviewed by {teacherName(s.submission.teacherUid)}</span>
-                      <span className="reviewed-group-count">{items.length} problem{items.length === 1 ? '' : 's'}</span>
-                    </h3>
+          {reviewedSubs.length === 0 ? <p className="dim">Nothing graded yet.</p>
+            : mode === 'flat'
+              ? (() => {
+                  const items = flatItems.slice(p * ITEMS_PER_PAGE, (p + 1) * ITEMS_PER_PAGE);
+                  const nav = navOf(items);
+                  return (
                     <ul className="problem-card-grid">
                       {items.map((it) => (
                         <ReviewTile key={it.attempt.id} item={it} index={index} nav={nav}
-                          retried={isRetried(it, data)} href={solveHref(it.attempt)} />
+                          retried={isRetried(it)} href={solveHref(it.attempt)} />
                       ))}
                     </ul>
-                  </section>
-                );
-              })}
-            </div>}
+                  );
+                })()
+              : <div className="reviewed-groups">
+                  {reviewedSubs.slice(p * GROUPS_PER_PAGE, (p + 1) * GROUPS_PER_PAGE).map((s) => {
+                    const items = s.items.filter((it) => it.verdict);
+                    const nav = navOf(items);
+                    return (
+                      <section key={s.submission.id} className="reviewed-group">
+                        <h3 className="reviewed-group-header">
+                          <span>
+                            Submitted {new Date(s.submission.sentAt).toLocaleString()}
+                            {teacherMode
+                              ? <> · {nameOf(s.submission.studentUid)}</>
+                              : <> · reviewed by {nameOf(s.submission.teacherUid)}</>}
+                          </span>
+                          <span className="reviewed-group-count">{items.length} problem{items.length === 1 ? '' : 's'}</span>
+                        </h3>
+                        <ul className="problem-card-grid">
+                          {items.map((it) => (
+                            <ReviewTile key={it.attempt.id} item={it} index={index} nav={nav}
+                              retried={isRetried(it)} href={solveHref(it.attempt)} />
+                          ))}
+                        </ul>
+                      </section>
+                    );
+                  })}
+                </div>}
 
           {pageCount > 1 && (
             <div className="pager">
@@ -135,10 +170,6 @@ export function History() {
       </section>
     </div>
   );
-}
-
-function isRetried(it: SubmissionItem, data: StudentData): boolean {
-  return (data.latestAttemptAt.get(it.attempt.problemId) ?? 0) > it.attempt.createdAt;
 }
 
 function ReviewTile({
