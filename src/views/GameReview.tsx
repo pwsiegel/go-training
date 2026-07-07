@@ -80,9 +80,9 @@ export function GameReview() {
   useEffect(() => {
     if (previewGame) return;
     let active = true;
-    getGame(id ?? '').then((g) => {
-      if (active) setLoaded({ id: id ?? '', game: g });
-    });
+    getGame(id ?? '')
+      .then((g) => { if (active) setLoaded({ id: id ?? '', game: g }); })
+      .catch(() => { if (active) setLoaded({ id: id ?? '', game: null }); });   // denied / missing → "not found"
     return () => { active = false; };
   }, [id, previewGame]);
 
