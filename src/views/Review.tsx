@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { deleteGame, gameOutcome, listGames } from '../data/games';
 import { deleteReviewsForGame } from '../data/reviews';
@@ -95,8 +95,17 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [foxOk, setFoxOk] = useState(false);
   const [managing, setManaging] = useState(false);
-  const [page, setPage] = useState(0);
-  const [prevSelected, setPrevSelected] = useState(selected);
+  // Page lives in the URL so opening a game and coming back (button or browser
+  // back) returns to the same page.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const page = Math.max(0, Number(searchParams.get('page')) || 0);
+  const setPage = (p: number) =>
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (p <= 0) next.delete('page'); else next.set('page', String(p));
+      return next;
+    }, { replace: true });
+  const backTo = searchParams.toString() ? `/review?${searchParams}` : '/review';
 
   useEffect(() => {
     if (!user) return;
@@ -156,22 +165,18 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
       .sort((a, b) => b.createdAt - a.createdAt);
   }, [games, selected, teacherMode]);
 
-  // Reset to the first page when the filter changes (adjust state during render).
-  if (prevSelected !== selected) {
-    setPrevSelected(selected);
-    setPage(0);
-  }
-
   const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
   const paged = visible.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
 
-  const toggle = (key: string) =>
+  const toggle = (key: string) => {
     setSelected((s) => {
       const next = new Set(s);
       if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
+    setPage(0);   // a filter change jumps back to the first page
+  };
 
   // Reload after a Manage-players change (student view only); auto-select any
   // newly-added player.
@@ -222,7 +227,7 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
               key={g.id}
               game={g}
               outcome={gameOutcome(g, myUids)}
-              onOpen={() => navigate(`/review/${g.id}`)}
+              onOpen={() => navigate(`/review/${g.id}`, { state: { from: backTo } })}
               onDelete={teacherMode ? undefined : () => remove(g.id)}
             />
           ))}
