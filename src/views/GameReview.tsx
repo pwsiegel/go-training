@@ -8,6 +8,10 @@ import { gameOutcome, getGame } from '../data/games';
 import { listFoxAccounts } from '../data/fox';
 import type { GameDoc } from '../data/model';
 import type { Color, Stone } from '../types';
+import {
+  addMove, buildTree, depthOf, leafOf, movesTo, nodeAtDepth, pathIds, pruneSubtree,
+  variationLines, type GameTree,
+} from '../variations';
 import { analyzePosition, scoreTrajectory, BROWSER_MODELS, LOCAL_MODEL, type WebAnalysis } from '../katago/webEngine';
 import { katagoBackendAvailable } from '../data/katago';
 import { Spinner } from '../Spinner';
@@ -17,6 +21,8 @@ import './GameReview.css';
 const COLS = 'ABCDEFGHJKLMNOPQRST';
 const coordLabel = (x: number, y: number) => `${COLS[x]}${19 - y}`;
 const scoreLabel = (lead: number) => `${lead >= 0 ? 'B' : 'W'}+${Math.abs(lead).toFixed(1)}`;
+const other = (c: Color): Color => (c === 'B' ? 'W' : 'B');
+const DEFAULT_BATCH = 24;   // positions per trajectory forward pass (see settings)
 
 type Point = { move: number; lead: number };
 
@@ -43,14 +49,25 @@ export function GameReview() {
   const [visitsByModel, setVisitsByModel] = useState<Record<string, number>>(
     () => Object.fromEntries([...BROWSER_MODELS, LOCAL_MODEL].map((m) => [m.id, m.defaultVisits])),
   );
+  const [batchSize, setBatchSize] = useState(DEFAULT_BATCH);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [localAvailable, setLocalAvailable] = useState(false);
   const [analysis, setAnalysis] = useState<{ cursor: number; data: WebAnalysis } | null>(null);
   const [analysisErr, setAnalysisErr] = useState('');
   const [partialTop, setPartialTop] = useState<{ cursor: number; x: number; y: number } | null>(null);
-  // Score estimates gathered from live analysis, keyed by move — so the graph
-  // fills in for any game (not just AI games that recorded scores while played).
+  // Live score estimates, keyed by tree node id (not move depth) so they survive
+  // line switches and a variation reuses the mainline's cached prefix.
   const [analyzedScores, setAnalyzedScores] = useState<Record<number, number>>({});
+  // Settings signature the cached mainline trajectory was computed for — null
+  // until it runs, so it runs once per game and thereafter only on Rerun.
+  const [trajFor, setTrajFor] = useState<string | null>(null);
+  const [trajRunning, setTrajRunning] = useState(false);
+  const trajRanRef = useRef(false);          // gate (non-reactive, avoids self-abort)
+  const [rerunToken, setRerunToken] = useState(0);   // bump to force a recompute
+  // Session variation tree (never persisted). `line` is the leaf that defines
+  // the line currently on screen; `cursor` is how far along that line we're at.
+  const [tree, setTree] = useState<GameTree | null>(null);
+  const [line, setLine] = useState(0);
   const settingsRef = useRef<HTMLDivElement>(null);
 
   // Offer the native-backend model only when it's reachable (dev with `make api`).
@@ -88,17 +105,7 @@ export function GameReview() {
 
   const loading = !previewGame && (!loaded || loaded.id !== id);
   const game = previewGame ?? (loading ? null : loaded?.game ?? null);
-  const moves = useMemo(() => (game ? movesFromSgf(game.sgf) : []), [game]);
-  const total = moves.length;
-
-  // Start the cursor at the end whenever a different game is shown (render-time
-  // adjustment rather than a setState-in-effect).
-  const [cursorForGame, setCursorForGame] = useState<GameDoc | null>(null);
-  if (game && game !== cursorForGame) {
-    setCursorForGame(game);
-    setCursor(total);
-    setAnalyzedScores({});
-  }
+  const mainlineMoves = useMemo(() => (game ? movesFromSgf(game.sgf) : []), [game]);
 
   // Which participant (if any) is one of the game owner's own accounts — for the
   // win/loss accent. Readable by the owner and, per the rules, a linked teacher.
@@ -111,19 +118,58 @@ export function GameReview() {
     return () => { on = false; };
   }, [game]);
 
+  // (Re)build the variation tree whenever a different game is shown; start the
+  // cursor at the end of the mainline (render-time adjustment, not an effect).
+  const [treeForGame, setTreeForGame] = useState<GameDoc | null>(null);
+  if (game && game !== treeForGame) {
+    setTreeForGame(game);
+    const t = buildTree(mainlineMoves);
+    setTree(t);
+    setLine(t.mainlineLeafId);
+    setCursor(mainlineMoves.length);
+    setAnalyzedScores({});
+    setTrajFor(null);
+    setAnalysis(null);
+  }
+
+  // Let the mainline trajectory run again for a newly-shown game (the ref can't
+  // be reset during render).
+  useEffect(() => { trajRanRef.current = false; }, [game]);
+
+  // The moves + node ids along the line currently on screen, and the mainline's.
+  const lineMoves = useMemo(() => (tree ? movesTo(tree, line) : []), [tree, line]);
+  const lineNodeIds = useMemo(() => (tree ? pathIds(tree, line) : []), [tree, line]);
+  const mainNodeIds = useMemo(() => (tree ? pathIds(tree, tree.mainlineLeafId) : []), [tree]);
+  const lines = useMemo(() => (tree ? variationLines(tree) : []), [tree]);
+  const total = lineMoves.length;
+  const onMainline = !!tree && line === tree.mainlineLeafId;
+  // Where the current line leaves the mainline (move number after which it
+  // diverges); -1 on the mainline itself.
+  const branchPoint = useMemo(() => {
+    if (!tree || onMainline) return -1;
+    const off = lineNodeIds.find((nid) => !tree.nodes[nid].mainline);
+    return off != null ? depthOf(tree, off) - 1 : -1;
+  }, [tree, lineNodeIds, onMainline]);
+
+  // Score curve for the current line: each depth's node from the (node-keyed)
+  // cache, backfilled with recorded mainline scores. The shared prefix of a
+  // variation therefore comes straight from the cached mainline analysis.
   const points = useMemo<Point[]>(() => {
-    const merged: Record<number, number> = {};
-    for (const [k, v] of Object.entries(game?.scoreAt ?? {})) merged[Number(k)] = v;
-    for (const [k, v] of Object.entries(analyzedScores)) merged[Number(k)] = v;
-    return Object.entries(merged)
-      .map(([m, lead]) => ({ move: Number(m), lead }))
-      .sort((a, b) => a.move - b.move);
-  }, [game, analyzedScores]);
+    if (!tree) return [];
+    const out: Point[] = [];
+    for (let i = 0; i <= total; i++) {
+      const node = lineNodeIds[i];
+      let lead: number | undefined = analyzedScores[node];
+      if (lead === undefined && tree.nodes[node]?.mainline) lead = game?.scoreAt?.[String(i)];
+      if (lead !== undefined) out.push({ move: i, lead });
+    }
+    return out;
+  }, [tree, lineNodeIds, total, analyzedScores, game]);
 
-  const shown = useMemo(() => replay(moves.slice(0, cursor)), [moves, cursor]);
+  const shown = useMemo(() => replay(lineMoves.slice(0, cursor)), [lineMoves, cursor]);
 
-  const activeRef = useRef<HTMLLIElement>(null);
-  useEffect(() => { activeRef.current?.scrollIntoView({ block: 'nearest' }); }, [cursor]);
+  const activeRef = useRef<HTMLTableRowElement>(null);
+  useEffect(() => { activeRef.current?.scrollIntoView({ block: 'nearest' }); }, [cursor, line]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -134,26 +180,30 @@ export function GameReview() {
     return () => window.removeEventListener('keydown', onKey);
   }, [total]);
 
+  // Whose turn it is at the cursor: the color of the line's next move if there
+  // is one, else the opposite of the last played move (Black on an empty board).
+  const toPlay: Color =
+    cursor < lineMoves.length ? lineMoves[cursor].color
+      : cursor > 0 ? other(lineMoves[cursor - 1].color)
+        : 'B';
+
   // KataGo analysis of the current position (opt-in). Browser models cancel the
   // stale search via the engine's 'interactive' group; the local backend is
   // canceled via the abort signal when scrubbing to a new position.
   useEffect(() => {
-    if (!analyzeOn || !game) return;
+    if (!analyzeOn || !game || !tree) return;
     let active = true;
     const ctrl = new AbortController();
     const forCursor = cursor;
-    const toPlay: Color =
-      cursor < moves.length ? moves[cursor].color
-        : cursor > 0 ? (moves[cursor - 1].color === 'B' ? 'W' : 'B')
-          : 'B';
-    const nextMove = cursor < moves.length ? moves[cursor] : null;
-    const childStones = nextMove ? replay(moves.slice(0, cursor + 1)).stones : null;
+    const forNode = nodeAtDepth(tree, line, cursor);
+    const nextMove = cursor < lineMoves.length ? lineMoves[cursor] : null;
+    const childStones = nextMove ? replay(lineMoves.slice(0, cursor + 1)).stones : null;
     analyzePosition({
       model,
       stones: shown.stones,
-      moves: moves.slice(0, cursor),
+      moves: lineMoves.slice(0, cursor),
       toPlay,
-      positionId: `${id}:${cursor}:${model.id}`,
+      positionId: `${id}:${line}:${cursor}:${model.id}`,
       visits,
       signal: ctrl.signal,
       evalNext: nextMove && childStones ? { move: { x: nextMove.x, y: nextMove.y }, stones: childStones } : null,
@@ -172,26 +222,41 @@ export function GameReview() {
       .then((res) => {
         if (!active || res === null) return;
         setAnalysis({ cursor: forCursor, data: res });
-        setAnalyzedScores((s) => ({ ...s, [forCursor]: res.rootScoreLead }));
+        setAnalyzedScores((s) => ({ ...s, [forNode]: res.rootScoreLead }));
         setAnalysisErr('');
       })
       .catch((e) => {
         if (!active) return;
-        setAnalysisErr(e instanceof Error ? e.message : 'analysis failed');
+        const msg = e instanceof Error ? e.message : 'analysis failed';
+        // WebGPU can't allocate this model/position on some GPUs — point at the
+        // lighter model / native engine rather than surfacing the raw GPU error.
+        const gpuLimit = /createBuffer|GPUDevice|too large|out of memory/i.test(msg);
+        setAnalysisErr(gpuLimit
+          ? 'this GPU couldn’t run the model here — use a smaller model or reduce batch size (⚙)'
+          : msg);
       });
     return () => { active = false; ctrl.abort(); };
-  }, [analyzeOn, model, visits, game, id, moves, cursor, shown]);
+  }, [analyzeOn, model, visits, game, id, tree, line, lineMoves, cursor, shown, toPlay]);
 
-  // Full-game score curve for the graph: one fast value pass over every position
-  // when AI review is on (browser models only), filling in progressively.
+  // Full-game score curve over the (stable) mainline. Runs once per game and
+  // fills the node-keyed cache; branching a variation can't abort it (it doesn't
+  // depend on the tree), and Rerun re-triggers it from any line. A mainline node's
+  // id equals its depth (see buildTree), so scores are keyed by depth directly.
+  const trajSig = `${model.id}:${visits}`;
   useEffect(() => {
     if (!analyzeOn || !game || model.kind !== 'browser') return;
+    if (trajRanRef.current) return;   // ran once this game; settings changes use Rerun
+    trajRanRef.current = true;
+    setTrajFor(trajSig);
+    setTrajRunning(true);
+    let active = true;
     const ctrl = new AbortController();
+    const mlTotal = mainlineMoves.length;
     const boards: Stone[][] = [[]];
     let stones: Stone[] = [];
     let ko: { x: number; y: number } | null = null;
-    for (let k = 0; k < total; k++) {
-      const mv = moves[k];
+    for (let k = 0; k < mlTotal; k++) {
+      const mv = mainlineMoves[k];
       if (mv.x < 0 || mv.y < 0) { boards.push(stones); continue; } // pass
       const r = playMove(stones, mv.color, mv.x, mv.y, ko);
       if (!r.ok) { boards.push(stones); continue; }
@@ -202,27 +267,32 @@ export function GameReview() {
       stones: b,
       previousStones: k > 0 ? boards[k - 1] : undefined,
       previousPreviousStones: k > 1 ? boards[k - 2] : undefined,
-      moves: moves.slice(0, k),
-      toPlay: (k < total ? moves[k].color : k > 0 ? (moves[k - 1].color === 'B' ? 'W' : 'B') : 'B') as Color,
+      moves: mainlineMoves.slice(0, k),
+      toPlay: (k < mlTotal ? mainlineMoves[k].color : k > 0 ? other(mainlineMoves[k - 1].color) : 'B') as Color,
     }));
     scoreTrajectory({
       model,
       positions,
       komi: 7.5,
+      // Positions per forward pass. Smaller batches shrink the peak WebGPU buffer
+      // for GPUs that refuse large mappedAtCreation allocations (see settings).
+      chunk: batchSize,
       onChunk: (from, scores) => {
         setAnalyzedScores((s) => {
           const next = { ...s };
-          scores.forEach((v, j) => { next[from + j] = v; });
+          scores.forEach((v, j) => { next[from + j] = v; });   // mainline node id === depth
           return next;
         });
       },
       signal: ctrl.signal,
-    }).catch(() => { /* aborted or transient engine error */ });
-    return () => ctrl.abort();
-  }, [analyzeOn, game, model, moves, total]);
+    })
+      .catch(() => { trajRanRef.current = false; /* aborted / engine error — allow a later run */ })
+      .finally(() => { if (active) setTrajRunning(false); });
+    return () => { active = false; ctrl.abort(); };
+  }, [analyzeOn, game, model, visits, mainlineMoves, batchSize, rerunToken, trajSig]);
 
   if (loading) return <div className="center-screen"><Spinner /></div>;
-  if (!game) {
+  if (!game || !tree) {
     return (
       <div className="gr">
         <p>Game not found.</p>
@@ -231,19 +301,126 @@ export function GameReview() {
     );
   }
 
-  const mark = cursor > 0 ? moves[cursor - 1] : null;
+  const seek = (m: number) => setCursor(Math.max(0, Math.min(total, m)));
+
+  // Play (or re-walk) a move at the cursor — branching a variation when it
+  // departs from the line, or advancing when it matches an existing child.
+  const playAt = (x: number, y: number) => {
+    const legal = playMove(shown.stones, toPlay, x, y, shown.koPoint);
+    if (!legal.ok) return;
+    const branchNode = nodeAtDepth(tree, line, cursor);
+    const { tree: next, childId } = addMove(tree, branchNode, { color: toPlay, x, y });
+    const stayOnLine = lineNodeIds.includes(childId);
+    setTree(next);
+    setLine(stayOnLine ? line : leafOf(next, childId));
+    setCursor(depthOf(next, childId));
+  };
+
+  // Delete a whole variation branch (a chip's subtree). If the current line ran
+  // through it, fall back to the mainline.
+  const deleteBranch = (nodeId: number) => {
+    const next = pruneSubtree(tree, nodeId);
+    setTree(next);
+    if (!next.nodes[line]) {
+      setLine(next.mainlineLeafId);
+      setCursor((c) => Math.min(c, depthOf(next, next.mainlineLeafId)));
+    }
+  };
+  // Recompute the mainline score graph (e.g. after changing model/visits).
+  const rerun = () => {
+    trajRanRef.current = false;
+    setTrajFor(null);
+    setAnalyzedScores({});
+    setRerunToken((t) => t + 1);
+  };
+  const trajStale = trajFor !== null && trajFor !== trajSig;
+  const clearLines = () => {
+    const t = buildTree(mainlineMoves);
+    setTree(t);
+    setLine(t.mainlineLeafId);
+    setCursor((c) => Math.min(c, mainlineMoves.length));
+  };
+
+  // Move-table navigation. Clicking a Game move goes to the mainline at that
+  // move (but scrubbing the shared prefix keeps you in the variation); clicking
+  // a variation move seeks within it; a preview chip drills into that line.
+  const goGame = (depth: number) => {
+    if (!onMainline && depth <= branchPoint) setCursor(depth);
+    else { setLine(tree.mainlineLeafId); setCursor(depth); }
+  };
+  const goVar = (depth: number) => setCursor(depth);
+  const enterAt = (leafId: number, depth: number) => { setLine(leafId); setCursor(depth); };
+
+  const mark = cursor > 0 ? lineMoves[cursor - 1] : null;
   const annotations: Annotation[] = mark ? [{ kind: 'triangle', x: mark.x, y: mark.y }] : [];
   const cursorScore = scoreBefore(points, cursor);
   const info = sgfInfo(game.sgf);
   const outcome = gameOutcome(game, myUids);
-  const seek = (m: number) => setCursor(Math.max(0, Math.min(total, m)));
+  const mainlineTotal = depthOf(tree, tree.mainlineLeafId);
+  // Table shape: rows are move numbers; left = mainline, right = the current
+  // variation (or, on the mainline, previews of where variations branch off).
+  const mainLen = mainNodeIds.length - 1;
+  const maxRows = onMainline ? mainLen : Math.max(mainLen, lineMoves.length);
+  const activeIsMain = cursor === 0 || !!tree.nodes[lineNodeIds[cursor]]?.mainline;
+  // Non-continuation children at the node before row `i` — variations off the
+  // mainline (Game view) or sub-variations off the current line (variation view).
+  const previewsAt = (i: number): number[] => {
+    if (onMainline) {
+      const parent = mainNodeIds[i - 1];
+      return parent != null ? tree.nodes[parent].children.filter((c) => !tree.nodes[c].mainline) : [];
+    }
+    if (i - 1 <= branchPoint) return [];   // siblings at/under the branch live in the strip
+    const parent = lineNodeIds[i - 1];
+    const cont = lineNodeIds[i];
+    return parent != null ? tree.nodes[parent].children.filter((c) => c !== cont) : [];
+  };
+  const moveCell = (node: number, depth: number, active: boolean, showNum: boolean, onClick: () => void) => {
+    const m = tree.nodes[node].move;
+    if (!m) return null;
+    const score = analyzedScores[node]
+      ?? (tree.nodes[node].mainline ? game.scoreAt?.[String(depth)] : undefined);
+    return (
+      <button type="button" className={active ? 'gr-mv active' : 'gr-mv'} onClick={onClick}>
+        {showNum && <span className="mv-num">{depth}</span>}
+        <span className={`mv-color mv-${m.color}`} aria-hidden />
+        <span className="mv-coord">{coordLabel(m.x, m.y)}</span>
+        {score !== undefined && <span className="mv-score">{scoreLabel(score)}</span>}
+      </button>
+    );
+  };
+  const previewChip = (node: number) => {
+    const m = tree.nodes[node].move;
+    if (!m) return null;
+    return (
+      <span key={node} className="gr-mv-preview">
+        <button
+          type="button"
+          className="gr-mv-preview-go"
+          onClick={() => enterAt(leafOf(tree, node), depthOf(tree, node))}
+          title={`Explore variation ${coordLabel(m.x, m.y)}`}
+        >
+          <span className={`mv-color mv-${m.color}`} aria-hidden />
+          <span className="mv-coord">{coordLabel(m.x, m.y)}</span>
+        </button>
+        <button
+          type="button"
+          className="gr-mv-preview-del"
+          onClick={() => deleteBranch(node)}
+          aria-label={`Delete variation ${coordLabel(m.x, m.y)}`}
+          title="Delete this variation"
+        >
+          ×
+        </button>
+      </span>
+    );
+  };
   const when = new Date(game.createdAt).toLocaleDateString(undefined, {
     year: 'numeric', month: 'short', day: 'numeric',
   });
   const currentAnalysis = analyzeOn && analysis && analysis.cursor === cursor ? analysis.data : null;
   const running = analyzeOn && !currentAnalysis && !analysisErr;
   const showTop = running && partialTop && partialTop.cursor === cursor ? partialTop : null;
-  const playedNext = cursor < total ? moves[cursor] : null;
+  const playedNext = cursor < total ? lineMoves[cursor] : null;
   const aiCandidates = currentAnalysis
     ? [
         ...currentAnalysis.moves.map((m) => ({ x: m.x, y: m.y, loss: m.pointsLost })),
@@ -266,7 +443,7 @@ export function GameReview() {
         <p className="gr-meta">
           {when}
           {game.myColor && game.ownerUid === user?.uid && <> · you played {game.myColor === 'B' ? 'Black' : 'White'}</>}
-          {' · '}{total} moves
+          {' · '}{mainlineTotal} moves
           {game.finalScore != null
             ? <> · final estimate <strong>{scoreLabel(game.finalScore)}</strong></>
             : info.result && (
@@ -330,22 +507,129 @@ export function GameReview() {
                   )}
                 </label>
               ))}
+              <div className="gr-settings-head">Score-graph batch</div>
+              <div className="gr-batch">
+                <input
+                  type="number"
+                  className="gr-model-visits"
+                  min={1}
+                  value={batchSize}
+                  onChange={(e) => setBatchSize(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+                  aria-label="Score-graph batch size"
+                />
+                <span className="gr-model-visits-label">positions / pass</span>
+                {batchSize !== DEFAULT_BATCH && (
+                  <button
+                    type="button"
+                    className="gr-model-reset"
+                    onClick={() => setBatchSize(DEFAULT_BATCH)}
+                    title={`Reset to ${DEFAULT_BATCH}`}
+                    aria-label={`Reset batch size to default (${DEFAULT_BATCH})`}
+                  >
+                    ↺
+                  </button>
+                )}
+              </div>
+              <p className="gr-settings-note">Lower this if a big GPU allocation fails.</p>
             </div>
           )}
         </div>
       </div>
 
-      {analyzeOn && <ScoreGraph points={points} total={total} cursor={cursor} onSeek={seek} />}
+      {analyzeOn && (
+        <div className="gr-graph">
+          <ScoreGraph points={points} total={total} cursor={cursor} onSeek={seek} />
+          {model.kind === 'browser' && (
+            trajRunning
+              ? <span className="gr-rerun gr-rerun-busy"><Spinner label="Analyzing…" /></span>
+              : (
+                <button
+                  type="button"
+                  className={`gr-rerun${trajStale ? ' stale' : ''}`}
+                  onClick={rerun}
+                  title={trajStale ? 'Settings changed — recompute the score graph' : 'Recompute the score graph'}
+                >
+                  Rerun
+                </button>
+              )
+          )}
+        </div>
+      )}
+
+      {analyzeOn && (
+        <div className="gr-analysis">
+          {running ? <Spinner label="Analyzing…" />
+            : analysisErr ? <span className="gr-analyze-err">{analysisErr}</span>
+              : currentAnalysis ? (
+                <>
+                  KataGo <strong>{scoreLabel(currentAnalysis.rootScoreLead)}</strong>
+                  {' · '}{currentAnalysis.rootVisits}v
+                  {playedNext && currentAnalysis.playedEval && (
+                    <> · played {coordLabel(playedNext.x, playedNext.y)} <span className="gr-loss">(−{currentAnalysis.playedEval.pointsLost.toFixed(1)})</span></>
+                  )}
+                </>
+              ) : null}
+        </div>
+      )}
 
       <div className="gr-main">
-        <div className="gr-board">
-          <Board
-            stones={shown.stones}
-            annotations={annotations}
-            aiCandidates={aiCandidates}
-            spinnerAt={showTop ? { x: showTop.x, y: showTop.y } : null}
-            ghostStone={playedNext ? { x: playedNext.x, y: playedNext.y, color: playedNext.color } : null}
-          />
+        <div className="gr-play">
+          <div className="gr-board-square">
+            <Board
+              stones={shown.stones}
+              annotations={annotations}
+              aiCandidates={aiCandidates}
+              spinnerAt={showTop ? { x: showTop.x, y: showTop.y } : null}
+              ghostStone={playedNext ? { x: playedNext.x, y: playedNext.y, color: playedNext.color } : null}
+              onPlay={(x, y) => playAt(x, y)}
+            />
+          </div>
+
+        <div className="gr-moves-wrap">
+        <div className="gr-moves-scroll">
+        <table className="gr-moves">
+          <thead>
+            <tr>
+              <th>Game</th>
+              <th>{onMainline ? 'Variations' : `Variation · from move ${branchPoint > 0 ? branchPoint : 'start'}`}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: maxRows }, (_, k) => k + 1).map((i) => {
+              const gameNode = i <= mainLen ? mainNodeIds[i] : null;
+              const varNode = !onMainline && i > branchPoint && i < lineNodeIds.length ? lineNodeIds[i] : null;
+              const previews = previewsAt(i);
+              const rowActive = cursor === i;
+              return (
+                <tr key={i} ref={rowActive ? activeRef : null}>
+                  <td className="gr-cell">
+                    {gameNode != null && moveCell(gameNode, i, rowActive && activeIsMain, true, () => goGame(i))}
+                  </td>
+                  <td className="gr-cell gr-cell-var">
+                    {varNode != null && moveCell(varNode, i, rowActive && !activeIsMain, gameNode == null, () => goVar(i))}
+                    {previews.length > 0 && (
+                      <span className="gr-previews">{previews.map((c) => previewChip(c))}</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          {lines.length > 0 && (
+            <tfoot>
+              <tr>
+                <td colSpan={2} className="gr-moves-foot">
+                  <button type="button" onClick={clearLines}>Clear all variations</button>
+                </td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+        </div>
+        </div>
+        </div>
+
+        <div className="gr-underboard">
           <div className="gr-scrub">
             <button type="button" onClick={() => seek(0)} disabled={cursor === 0} aria-label="Start">⏮</button>
             <button type="button" onClick={() => seek(cursor - 1)} disabled={cursor === 0} aria-label="Previous">◀</button>
@@ -355,36 +639,10 @@ export function GameReview() {
           </div>
           <div className="gr-status">
             move {cursor} / {total}
+            {!onMainline && <> · <span className="gr-status-var">variation</span></>}
             {cursorScore !== null && <> · estimate <strong>{scoreLabel(cursorScore)}</strong></>}
-            {analyzeOn && (
-              analysisErr ? <> · <span className="gr-analyze-err">{analysisErr}</span></>
-                : currentAnalysis ? (
-                  <>
-                    {' · '}KataGo <strong>{scoreLabel(currentAnalysis.rootScoreLead)}</strong>
-                    {' · '}{currentAnalysis.rootVisits}v
-                    {playedNext && currentAnalysis.playedEval && (
-                      <> · played {coordLabel(playedNext.x, playedNext.y)} (−{currentAnalysis.playedEval.pointsLost.toFixed(1)})</>
-                    )}
-                  </>
-                ) : <> · analyzing…</>
-            )}
           </div>
         </div>
-
-        <ol className="gr-movelist">
-          {moves.map((m, i) => (
-            <li key={i} ref={cursor === i + 1 ? activeRef : null} className={cursor === i + 1 ? 'active' : ''}>
-              <button type="button" onClick={() => seek(i + 1)}>
-                <span className="mv-num">{i + 1}</span>
-                <span className={`mv-color mv-${m.color}`} aria-hidden />
-                <span className="mv-coord">{coordLabel(m.x, m.y)}</span>
-                {game.scoreAt?.[String(i + 1)] !== undefined && (
-                  <span className="mv-score">{scoreLabel(game.scoreAt[String(i + 1)])}</span>
-                )}
-              </button>
-            </li>
-          ))}
-        </ol>
       </div>
     </div>
   );
