@@ -57,6 +57,16 @@
   border-color: var(--text-muted);
 }
 
+/* Win/loss for one of the viewer's own accounts. */
+.game-card--win { border-color: var(--success); box-shadow: 0 0 0 1px var(--success); }
+.game-card--loss { border-color: var(--error); box-shadow: 0 0 0 1px var(--error); }
+.game-card--win:hover { border-color: var(--success); }
+.game-card--loss:hover { border-color: var(--error); }
+
+.game-result { font-weight: 600; }
+.game-result--win { color: var(--success-strong); }
+.game-result--loss { color: var(--error-strong); }
+
 .game-card-board {
   line-height: 0;
   background: #e6b871;
@@ -213,6 +223,21 @@
 
 .review-player-info .review-muted {
   font-size: 0.8rem;
+}
+
+.review-player-mine {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  width: fit-content;
+}
+
+.review-player-mine input {
+  cursor: pointer;
 }
 
 .review-player-actions {

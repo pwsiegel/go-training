@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { deleteFoxPlayer, onboardFoxAccount, syncFoxAccount } from '../data/fox';
+import { deleteFoxPlayer, onboardFoxAccount, setFoxAccountMine, syncFoxAccount } from '../data/fox';
 import type { FoxAccountDoc, GameDoc } from '../data/model';
 
 const shortDate = (ms: number) =>
@@ -69,6 +69,12 @@ export function ManagePlayersModal({
       return `${a.username}: ${n} new game${n === 1 ? '' : 's'}`;
     });
 
+  const toggleMine = (a: FoxAccountDoc) =>
+    run(`mine:${a.uid}`, async () => {
+      await setFoxAccountMine(ownerUid, a, !a.isMine);
+      return a.isMine ? `${a.username} is no longer marked as yours` : `Marked ${a.username} as your account`;
+    });
+
   const del = (a: FoxAccountDoc) => {
     if (!window.confirm(`Delete ${a.username} and their games?`)) return;
     run(`del:${a.uid}`, async () => {
@@ -119,6 +125,15 @@ export function ManagePlayersModal({
                     <span className="review-muted">
                       {n} game{n === 1 ? '' : 's'} · synced {shortDate(a.lastSyncedAt)}
                     </span>
+                    <label className="review-player-mine">
+                      <input
+                        type="checkbox"
+                        checked={!!a.isMine}
+                        disabled={!!busy}
+                        onChange={() => toggleMine(a)}
+                      />
+                      My account
+                    </label>
                   </div>
                   <div className="review-player-actions">
                     <button type="button" onClick={() => sync(a)} disabled={!!busy}>

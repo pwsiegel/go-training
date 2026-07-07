@@ -4,7 +4,8 @@ import { useAuth } from '../auth';
 import { Board, type Annotation } from '../Board';
 import { playMove, replay } from '../goRules';
 import { movesFromSgf, sgfInfo } from '../sgf';
-import { getGame } from '../data/games';
+import { gameOutcome, getGame } from '../data/games';
+import { listFoxAccounts } from '../data/fox';
 import type { GameDoc } from '../data/model';
 import type { Color, Stone } from '../types';
 import { analyzePosition, scoreTrajectory, BROWSER_MODELS, LOCAL_MODEL, type WebAnalysis } from '../katago/webEngine';
@@ -35,6 +36,7 @@ export function GameReview() {
   // A just-played game handed straight to review without saving (router state).
   const previewGame = (location.state as { game?: GameDoc } | null)?.game;
   const [loaded, setLoaded] = useState<{ id: string; game: GameDoc | null } | null>(null);
+  const [myUids, setMyUids] = useState<Set<number>>(new Set());
   const [cursor, setCursor] = useState(0);
   const [analyzeOn, setAnalyzeOn] = useState(false);
   const [modelId, setModelId] = useState(BROWSER_MODELS[0].id);
@@ -97,6 +99,17 @@ export function GameReview() {
     setCursor(total);
     setAnalyzedScores({});
   }
+
+  // Which participant (if any) is one of the game owner's own accounts — for the
+  // win/loss accent. Readable by the owner and, per the rules, a linked teacher.
+  useEffect(() => {
+    if (!game || game.source !== 'fox') return;
+    let on = true;
+    listFoxAccounts(game.ownerUid)
+      .then((a) => { if (on) setMyUids(new Set(a.filter((x) => x.isMine).map((x) => x.uid))); })
+      .catch(() => { if (on) setMyUids(new Set()); });
+    return () => { on = false; };
+  }, [game]);
 
   const points = useMemo<Point[]>(() => {
     const merged: Record<number, number> = {};
@@ -222,6 +235,7 @@ export function GameReview() {
   const annotations: Annotation[] = mark ? [{ kind: 'triangle', x: mark.x, y: mark.y }] : [];
   const cursorScore = scoreBefore(points, cursor);
   const info = sgfInfo(game.sgf);
+  const outcome = gameOutcome(game, myUids);
   const seek = (m: number) => setCursor(Math.max(0, Math.min(total, m)));
   const when = new Date(game.createdAt).toLocaleDateString(undefined, {
     year: 'numeric', month: 'short', day: 'numeric',
@@ -242,7 +256,7 @@ export function GameReview() {
     : undefined;
 
   return (
-    <div className="gr">
+    <div className={`gr${outcome ? ` gr--${outcome}` : ''}`}>
       <div className="gr-head">
         <Link to="/review" className="gr-back">← Games</Link>
         <h1 className="gr-players">
@@ -255,7 +269,10 @@ export function GameReview() {
           {' · '}{total} moves
           {game.finalScore != null
             ? <> · final estimate <strong>{scoreLabel(game.finalScore)}</strong></>
-            : info.result && <> · <strong>{info.result}</strong></>}
+            : info.result && (
+              <> · <strong className={outcome ? `gr-result gr-result--${outcome}` : undefined}>{info.result}</strong></>
+            )}
+          {outcome && <span className={`gr-outcome gr-outcome--${outcome}`}>{outcome === 'win' ? 'You won' : 'You lost'}</span>}
         </p>
         <div className="gr-analyze-controls" ref={settingsRef}>
           <button

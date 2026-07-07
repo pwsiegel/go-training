@@ -56,6 +56,13 @@ export async function listFoxAccounts(ownerUid: string): Promise<FoxAccountDoc[]
     .sort((a, b) => a.username.localeCompare(b.username));
 }
 
+/** Mark (or unmark) a tracked account as one of the owner's own accounts. */
+export async function setFoxAccountMine(
+  ownerUid: string, account: FoxAccountDoc, isMine: boolean,
+): Promise<void> {
+  await setDoc(accountDoc(ownerUid, account.uid), { ...account, isMine });
+}
+
 /** Delete a tracked player and their games — but keep any game whose other
  * player is still tracked. Returns the number of games actually deleted. */
 export async function deleteFoxPlayer(ownerUid: string, account: FoxAccountDoc): Promise<number> {
