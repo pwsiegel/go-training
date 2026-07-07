@@ -1,5 +1,5 @@
 /* Submission / review UI, ported from the original app (web/src/Home.css +
-   Reviewed.css). Three stacked section cards: To submit, Sent, History. */
+   Reviewed.css). Three stacked section cards: Pending submissions, Past submissions, History. */
 
 .submissions { max-width: 56rem; margin: 0 auto; padding: 1.5rem 1.5rem 4rem; }
 .submissions h1 { font-size: 1.6rem; margin: 0 0 1.25rem; }
@@ -36,7 +36,7 @@
 .dim { color: var(--text-faint); }
 .dot { margin: 0 0.35rem; color: var(--border-c); }
 
-/* ---- To submit (outbox) ---- */
+/* ---- Pending submissions (outbox) ---- */
 .submissions-outbox {
   border: 1px solid var(--accent-bg-stronger);
   background: var(--bg-alt);
@@ -85,7 +85,7 @@
 }
 .submissions-gotile-num { font-size: 0.78rem; color: var(--text-faint); }
 
-/* ---- Sent ---- */
+/* ---- Past submissions ---- */
 .submissions-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.5rem; }
 .submissions-row-link {
   display: flex; justify-content: space-between; align-items: center; gap: 1rem;

@@ -37,7 +37,7 @@ export function BatchDrawer() {
       const n = batch.length;
       await sendBatch(uid, picked);
       refresh();
-      setFlash(`Sent ${n} problem${n === 1 ? '' : 's'}.`);
+      setFlash(`Submitted ${n} problem${n === 1 ? '' : 's'}.`);
       setTimeout(() => setFlash(null), 2500);
     } finally {
       setSending(false);
