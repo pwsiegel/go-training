@@ -1,0 +1,10 @@
+# Force text diffs for source files. Dense Unicode (board glyphs, ×/−/↩/⚙, …)
+# can trip git's binary-detection heuristic, which otherwise hides real diffs.
+*.ts    text
+*.tsx   text
+*.css   text
+*.js    text
+*.json  text
+*.html  text
+*.md    text
+*.svg   text
