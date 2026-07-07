@@ -216,6 +216,17 @@
   font-size: 0.9rem;
 }
 
+.play-blocked {
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.7rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
 .play-alert-thresh {
   display: block;
   margin-top: 0.35rem;
