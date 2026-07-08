@@ -288,10 +288,10 @@ export function PlayView({
         )}
       </div>
       <div className="play-tools" role="toolbar" aria-label="Play mode tools">
-        <ToolButton active={aiOn} onClick={() => setAiOn((v) => !v)}>
-          AI hints <span className="tool-counter">{aiLoading ? '…' : aiOn ? 'on' : 'off'}</span>
-        </ToolButton>
-        {aiOn && (
+        <div className="play-ai-row">
+          <ToolButton active={aiOn} onClick={() => setAiOn((v) => !v)}>
+            AI hints <span className="tool-counter">{aiLoading ? '…' : aiOn ? 'on' : 'off'}</span>
+          </ToolButton>
           <button
             type="button"
             className="play-tool play-gear"
@@ -301,7 +301,7 @@ export function PlayView({
           >
             ⚙
           </button>
-        )}
+        </div>
         <Modal open={settingsOpen} onClose={() => setSettingsOpen(false)} title="Analysis settings">
           <EngineSettings
             models={models}

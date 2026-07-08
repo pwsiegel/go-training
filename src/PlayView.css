@@ -27,10 +27,25 @@
   font-weight: 500;
 }
 
+/* AI hints + gear share one full-width row, so together they span the same
+   width as the other toolbar buttons (e.g. Region). */
+.play-ai-row {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.play-ai-row > .play-tool:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .play-gear {
-  align-self: flex-start;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.45rem 0.6rem;
   font-size: 1rem;
-  line-height: 1;
 }
 
 .play-tools {
