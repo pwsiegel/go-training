@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Board, type Annotation } from './Board';
 import { Spinner } from './Spinner';
 import { playMove, type PlayError } from './goRules';
 import type { Color, Stone } from './types';
 import './PlayView.css';
 import { katagoBackendAvailable, type Region } from './data/katago';
-import { analyzePosition, BROWSER_MODELS, LOCAL_MODEL, type WebAnalysis } from './katago/webEngine';
+import { analyzePosition, webgpuAvailable, FALLBACK_MODEL_ID, BROWSER_MODELS, LOCAL_MODEL, type WebAnalysis } from './katago/webEngine';
 import { Modal } from './Modal';
 import { EngineSettings } from './EngineSettings';
 import { useEngineLease } from './katago/engineLease';
@@ -92,6 +92,17 @@ export function PlayView({
   useEffect(() => {
     let active = true;
     katagoBackendAvailable().then((ok) => { if (active) setLocalAvailable(ok); });
+    return () => { active = false; };
+  }, []);
+
+  // Without a real WebGPU adapter, b18 falls to wasm (~12x slower, can't search)
+  // — default to the small b6 net instead, unless the user has picked a model.
+  const userPickedModel = useRef(false);
+  useEffect(() => {
+    let active = true;
+    webgpuAvailable().then((ok) => {
+      if (active && !ok && !userPickedModel.current) setModelId(FALLBACK_MODEL_ID);
+    });
     return () => { active = false; };
   }, []);
 
@@ -306,7 +317,7 @@ export function PlayView({
           <EngineSettings
             models={models}
             modelId={modelId}
-            onModelId={setModelId}
+            onModelId={(id) => { userPickedModel.current = true; setModelId(id); }}
             visitsByModel={visitsByModel}
             onVisitsChange={(id, v) => setVisitsByModel((prev) => ({ ...prev, [id]: v }))}
             batchOverride={batchOverride}
