@@ -147,10 +147,14 @@ export function PlayView({
   // WebAnalysis carries side-to-move pointsLost (best = 0) already.
   const aiCandidates = useMemo(() => {
     if (!analysis) return undefined;
-    const floor = Math.max(8, analysis.rootVisits * 0.01);
-    return analysis.moves
-      .filter((m) => m.visits >= floor && m.pointsLost <= 0.5)
-      .map((m) => ({ x: m.x, y: m.y, loss: m.pointsLost }));
+    // Near-optimal moves first; the visit floor only rejects single-visit score
+    // noise and scales to the search size — Explore runs few visits, so a fixed
+    // floor would hide every move. Always keep the best so a completed analysis
+    // never shows an empty board.
+    const near = analysis.moves.filter((m) => m.pointsLost <= 0.5);
+    const floor = Math.max(2, analysis.rootVisits * 0.03);
+    const solid = near.filter((m) => m.visits >= floor);
+    return (solid.length ? solid : near.slice(0, 1)).map((m) => ({ x: m.x, y: m.y, loss: m.pointsLost }));
   }, [analysis]);
 
   // Root score/winrate are Black's perspective — read off who's ahead directly.
