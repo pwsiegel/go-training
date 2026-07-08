@@ -13,6 +13,7 @@ import { getAnimationNow } from '../../utils/animationFrame';
 import { parseKataGoModelV8 } from './loadModelV8';
 import { KataGoModelV8Tf } from './modelV8';
 import { ENGINE_MAX_TIME_MS, ENGINE_MAX_VISITS } from './limits';
+import { autoBatchSize, type EnginePerf } from './autoBatch';
 import { MctsSearch, type OwnershipMode } from './analyzeMcts';
 import { fillInputsV7Fast, type RecentMove } from './featuresV7Fast';
 import {
@@ -42,6 +43,9 @@ import { buildSGFMetadataV1 } from './sgfMetadata';
 let model: KataGoModelV8Tf | null = null;
 let loadedModelName: string | undefined;
 let loadedModelUrl: string | null = null;
+// Per-net, per-device forward-pass timings, measured once when the net loads.
+// Drives auto batch sizing when a request omits an explicit batchSize.
+let enginePerf: EnginePerf | null = null;
 let backendPromise: Promise<void> | null = null;
 let backendPreference: KataGoBackendPreference | null = null;
 let prodModeEnabled = false;
@@ -347,6 +351,7 @@ async function ensureBackend(backend?: KataGoBackendPreference): Promise<void> {
   model = null;
   loadedModelName = undefined;
   loadedModelUrl = null;
+  enginePerf = null;
   search = null;
   searchKey = null;
 
@@ -384,6 +389,38 @@ async function warmupModel(candidate: KataGoModelV8Tf): Promise<void> {
   }
 }
 
+// Time a value-only forward pass at two batch sizes (steady state — the warmup
+// above already compiled the base pipelines) so the app can size dispatches to
+// a latency budget. Each size gets one discarded warm run (its pipeline may not
+// be compiled yet), then the fastest of two timed runs (min = least noisy).
+async function measureEnginePerf(m: KataGoModelV8Tf): Promise<EnginePerf> {
+  const points: { batch: number; ms: number }[] = [];
+  for (const batch of [2, 12]) {
+    const spatial = tf.zeros([batch, 19, 19, 22], 'float32') as tf.Tensor4D;
+    const global = tf.zeros([batch, 19], 'float32') as tf.Tensor2D;
+    try {
+      const run = async () => {
+        const out = m.forwardValueOnly(spatial, global);
+        await Promise.all([out.value.data(), out.scoreValue.data()]);
+        out.value.dispose();
+        out.scoreValue.dispose();
+      };
+      await run();
+      let best = Infinity;
+      for (let i = 0; i < 2; i++) {
+        const t = getAnimationNow();
+        await run();
+        best = Math.min(best, getAnimationNow() - t);
+      }
+      points.push({ batch, ms: best });
+    } finally {
+      spatial.dispose();
+      global.dispose();
+    }
+  }
+  return { points };
+}
+
 async function createWarmedModel(parsed: ParsedKataGoModelV8): Promise<KataGoModelV8Tf> {
   const candidate = new KataGoModelV8Tf(parsed);
   try {
@@ -400,6 +437,7 @@ function installModel(nextModel: KataGoModelV8Tf, parsed: ParsedKataGoModelV8, m
   model = nextModel;
   loadedModelName = parsed.modelName;
   loadedModelUrl = modelUrl;
+  enginePerf = null;
   search = null;
   searchKey = null;
 }
@@ -431,6 +469,7 @@ async function ensureModel(modelUrl: string, backend?: KataGoBackendPreference):
   while (true) {
     try {
       installModel(await createWarmedModel(parsed), parsed, modelUrl);
+      if (model) enginePerf = await measureEnginePerf(model);
       return;
     } catch (err) {
       const fallbackBackend = getKataGoWarmupFallbackBackend({
@@ -461,6 +500,7 @@ async function handleMessage(msg: KataGoWorkerRequest): Promise<void> {
       ok: true,
       backend: tf.getBackend(),
       modelName: loadedModelName,
+      perf: enginePerf ?? undefined,
     });
     return;
   }
@@ -509,6 +549,7 @@ async function handleMessage(msg: KataGoWorkerRequest): Promise<void> {
       ok: true,
       backend: tf.getBackend(),
       modelName: loadedModelName,
+      perf: enginePerf ?? undefined,
       eval: {
         rootWinRate: evaled.blackWinProb,
         rootScoreLead: evaled.blackScoreLead,
@@ -615,6 +656,7 @@ async function handleMessage(msg: KataGoWorkerRequest): Promise<void> {
         ok: true,
         backend: tf.getBackend(),
         modelName: loadedModelName,
+        perf: enginePerf ?? undefined,
         evals: [],
       });
       return;
@@ -673,6 +715,7 @@ async function handleMessage(msg: KataGoWorkerRequest): Promise<void> {
       ok: true,
       backend: tf.getBackend(),
       modelName: loadedModelName,
+      perf: enginePerf ?? undefined,
       evals,
     });
     return;
@@ -712,7 +755,10 @@ async function handleMessage(msg: KataGoWorkerRequest): Promise<void> {
 
     const maxVisits = Math.max(16, Math.min(msg.visits ?? 256, ENGINE_MAX_VISITS));
     const maxTimeMs = Math.max(25, Math.min(msg.maxTimeMs ?? 800, ENGINE_MAX_TIME_MS));
-    const batchSize = Math.max(1, Math.min(msg.batchSize ?? (tf.getBackend() === 'webgpu' ? 16 : 4), 64));
+    // Omitted batchSize = auto: size each GPU dispatch to a latency budget from
+    // the measured forward-pass timings (WebGPU only; wasm/cpu keep a small batch).
+    const defaultBatch = tf.getBackend() === 'webgpu' ? autoBatchSize(enginePerf) : 4;
+    const batchSize = Math.max(1, Math.min(msg.batchSize ?? defaultBatch, 64));
     const maxChildren = Math.max(4, Math.min(msg.maxChildren ?? 64, BOARD_AREA));
     const topK = Math.max(1, Math.min(msg.topK ?? 10, 50));
     const includeMovesOwnership = msg.includeMovesOwnership === true;
@@ -875,6 +921,8 @@ async function handleMessage(msg: KataGoWorkerRequest): Promise<void> {
           backend: tf.getBackend(),
           modelName: loadedModelName,
           analysis,
+          perf: enginePerf ?? undefined,
+          chosenBatchSize: batchSize,
         },
         transfer
       );

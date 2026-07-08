@@ -13,7 +13,7 @@ import {
   addMove, buildTree, depthOf, deserializeVariations, leafOf, movesTo, nodeAtDepth,
   pathIds, pruneSubtree, serializeVariations, variationLines, type GameTree,
 } from '../variations';
-import { analyzePosition, scoreTrajectory, BROWSER_MODELS, LOCAL_MODEL, type WebAnalysis } from '../katago/webEngine';
+import { analyzePosition, scoreTrajectory, recommendedBatchSize, activeBatchSize, BROWSER_MODELS, LOCAL_MODEL, type WebAnalysis } from '../katago/webEngine';
 import { useEngineLease } from '../katago/engineLease';
 import { katagoBackendAvailable } from '../data/katago';
 import { Spinner } from '../Spinner';
@@ -24,7 +24,6 @@ const COLS = 'ABCDEFGHJKLMNOPQRST';
 const coordLabel = (x: number, y: number) => `${COLS[x]}${19 - y}`;
 const scoreLabel = (lead: number) => `${lead >= 0 ? 'B' : 'W'}+${Math.abs(lead).toFixed(1)}`;
 const other = (c: Color): Color => (c === 'B' ? 'W' : 'B');
-const DEFAULT_BATCH = 24;   // positions per trajectory forward pass (see settings)
 
 type Point = { move: number; lead: number };
 
@@ -53,7 +52,10 @@ export function GameReview() {
   const [visitsByModel, setVisitsByModel] = useState<Record<string, number>>(
     () => Object.fromEntries([...BROWSER_MODELS, LOCAL_MODEL].map((m) => [m.id, m.defaultVisits])),
   );
-  const [batchSize, setBatchSize] = useState(DEFAULT_BATCH);
+  // GPU dispatch batch, shared by the interactive search and the score-graph
+  // sweep. null = Auto (the engine sizes each pass to a latency budget from its
+  // on-load forward-pass measurement); a number is a manual override.
+  const [batchOverride, setBatchOverride] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [localAvailable, setLocalAvailable] = useState(false);
   const [analysis, setAnalysis] = useState<{ cursor: number; data: WebAnalysis } | null>(null);
@@ -290,6 +292,7 @@ export function GameReview() {
         toPlay,
         positionId: `${id}:${line}:${cursor}:${model.id}`,
         visits,
+        batchSize: batchOverride ?? undefined,
         signal: ctrl.signal,
         evalNext: nextMove && childStones ? { move: { x: nextMove.x, y: nextMove.y }, stones: childStones } : null,
         onProgress: (p) => {
@@ -323,7 +326,7 @@ export function GameReview() {
         });
     }, 300);
     return () => { active = false; clearTimeout(timer); ctrl.abort(); };
-  }, [analyzeOn, engineReady, model, visits, game, id, tree, line, lineMoves, cursor, shown, toPlay]);
+  }, [analyzeOn, engineReady, model, visits, batchOverride, game, id, tree, line, lineMoves, cursor, shown, toPlay]);
 
   // Full-game score curve over the (stable) mainline. Runs once per game and
   // fills the node-keyed cache; branching a variation can't abort it (it doesn't
@@ -361,9 +364,10 @@ export function GameReview() {
       model,
       positions,
       komi: 7.5,
-      // Positions per forward pass. Smaller batches shrink the peak WebGPU buffer
-      // for GPUs that refuse large mappedAtCreation allocations (see settings).
-      chunk: batchSize,
+      // Positions per forward pass; omit for Auto (latency-budgeted from the
+      // measured forward-pass time). Smaller batches also shrink the peak WebGPU
+      // buffer for GPUs that refuse large mappedAtCreation allocations.
+      chunk: batchOverride ?? undefined,
       onChunk: (from, scores) => {
         setAnalyzedScores((s) => {
           const next = { ...s };
@@ -376,7 +380,7 @@ export function GameReview() {
       .catch(() => { trajRanRef.current = false; /* aborted / engine error — allow a later run */ })
       .finally(() => { if (active) setTrajRunning(false); });
     return () => { active = false; ctrl.abort(); };
-  }, [analyzeOn, engineReady, game, model, visits, mainlineMoves, batchSize, rerunToken, trajSig]);
+  }, [analyzeOn, engineReady, game, model, visits, mainlineMoves, batchOverride, rerunToken, trajSig]);
 
   if (loading) return <div className="center-screen"><Spinner /></div>;
   if (!game || !tree) {
@@ -593,30 +597,45 @@ export function GameReview() {
                   )}
                 </label>
               ))}
-              <div className="gr-settings-head">Score-graph batch</div>
+              <div className="gr-settings-head">GPU batch</div>
               <div className="gr-batch">
-                <input
-                  type="number"
-                  className="gr-model-visits"
-                  min={1}
-                  value={batchSize}
-                  onChange={(e) => setBatchSize(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
-                  aria-label="Score-graph batch size"
-                />
-                <span className="gr-model-visits-label">positions / pass</span>
-                {batchSize !== DEFAULT_BATCH && (
-                  <button
-                    type="button"
-                    className="gr-model-reset"
-                    onClick={() => setBatchSize(DEFAULT_BATCH)}
-                    title={`Reset to ${DEFAULT_BATCH}`}
-                    aria-label={`Reset batch size to default (${DEFAULT_BATCH})`}
-                  >
-                    ↺
-                  </button>
+                {batchOverride === null ? (
+                  <>
+                    <span className="gr-batch-auto">Auto — {activeBatchSize() ?? recommendedBatchSize()} / pass</span>
+                    <button
+                      type="button"
+                      className="gr-model-reset"
+                      onClick={() => setBatchOverride(activeBatchSize() ?? recommendedBatchSize())}
+                      title="Set a manual batch size"
+                      aria-label="Override the automatic batch size"
+                    >
+                      ✎
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <input
+                      type="number"
+                      className="gr-model-visits"
+                      min={1}
+                      value={batchOverride}
+                      onChange={(e) => setBatchOverride(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+                      aria-label="Manual GPU batch size"
+                    />
+                    <span className="gr-model-visits-label">positions / pass</span>
+                    <button
+                      type="button"
+                      className="gr-model-reset"
+                      onClick={() => setBatchOverride(null)}
+                      title="Back to Auto"
+                      aria-label="Reset batch size to Auto"
+                    >
+                      ↺
+                    </button>
+                  </>
                 )}
               </div>
-              <p className="gr-settings-note">Lower this if a big GPU allocation fails.</p>
+              <p className="gr-settings-note">Auto sizes each GPU pass to a latency budget. Lower it manually if a big GPU allocation fails.</p>
             </div>
           )}
         </div>

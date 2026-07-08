@@ -159,6 +159,11 @@
   padding: 0.4rem 0.35rem;
 }
 
+.gr-batch-auto {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
 .gr-settings-note {
   margin: 0;
   padding: 0 0.35rem 0.3rem;

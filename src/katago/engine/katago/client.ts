@@ -1,4 +1,5 @@
 import type { KataGoWorkerRequest, KataGoWorkerResponse } from './types';
+import type { EnginePerf } from './autoBatch';
 import type { BoardState, GameRules, KataGoBackendPreference, Move, Player, RegionOfInterest } from '../../types';
 import { getWorkerConstructor } from '../../utils/browserWorker';
 import { publicUrl } from '../../utils/publicUrl';
@@ -38,6 +39,8 @@ class KataGoEngineClient {
   private backend: string | null = null;
   private modelName: string | null = null;
   private lastLoggedEngineLabel: string | null = null;
+  private enginePerf: EnginePerf | null = null;
+  private chosenBatchSize: number | null = null;
 
   constructor() {
     if (!getWorkerConstructor()) {
@@ -146,7 +149,9 @@ class KataGoEngineClient {
     }
   }
 
-  private syncEngineInfo(msg: { backend?: string; modelName?: string }): void {
+  private syncEngineInfo(msg: { backend?: string; modelName?: string; perf?: EnginePerf; chosenBatchSize?: number }): void {
+    if (msg.perf) this.enginePerf = msg.perf;
+    if (typeof msg.chosenBatchSize === 'number') this.chosenBatchSize = msg.chosenBatchSize;
     let changed = false;
     if (typeof msg.backend === 'string' && msg.backend !== this.backend) {
       this.backend = msg.backend;
@@ -169,6 +174,18 @@ class KataGoEngineClient {
 
   getEngineInfo(): { backend: string | null; modelName: string | null } {
     return { backend: this.backend, modelName: this.modelName };
+  }
+
+  /** Latest measured forward-pass timings for the loaded net (WebGPU), or null
+   * until the first analysis after a load returns. Drives app-side batch sizing
+   * (score-graph chunking) and the "Auto — batch N" UI label. */
+  getEnginePerf(): EnginePerf | null {
+    return this.enginePerf;
+  }
+
+  /** The batch size the worker most recently chose for a search (auto or manual). */
+  getChosenBatchSize(): number | null {
+    return this.chosenBatchSize;
   }
 
   init(modelUrl: string, backend?: KataGoBackendPreference): Promise<void> {
@@ -397,6 +414,17 @@ function formatWorkerError(err: unknown, prefix: string): Error {
 export function getKataGoEngineClient(): KataGoEngineClient {
   if (!singleton) singleton = new KataGoEngineClient();
   return singleton;
+}
+
+/** Read the live engine's last perf measurement without spawning a worker
+ * (returns null when no engine is running). */
+export function getEnginePerf(): EnginePerf | null {
+  return singleton?.getEnginePerf() ?? null;
+}
+
+/** The batch size the running worker last searched with, or null. */
+export function getChosenBatchSize(): number | null {
+  return singleton?.getChosenBatchSize() ?? null;
 }
 
 /** Terminate the engine worker and drop the singleton, releasing its WebGPU
