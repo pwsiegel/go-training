@@ -5,7 +5,8 @@
 // through our B+/W+ scoreLabel.
 
 import { getDownloadURL, ref } from 'firebase/storage';
-import { getKataGoEngineClient, isKataGoCanceledError } from './engine/katago/client';
+import { getKataGoEngineClient, isKataGoCanceledError, getEnginePerf, getChosenBatchSize } from './engine/katago/client';
+import { autoBatchSize } from './engine/katago/autoBatch';
 import type { KataGoAnalysisPayload } from './engine/katago/types';
 import { storage } from '../firebase';
 import { analyze as backendAnalyze, type Analysis as BackendAnalysis, type AnalyzeParams } from '../data/katago';
@@ -34,6 +35,19 @@ export const BROWSER_MODELS: AnalysisModel[] = [
 export const LOCAL_MODEL: AnalysisModel = {
   id: 'local', name: 'kata1-b18c384nbt', runtime: 'Metal (native)', strength: 'strong', kind: 'local', defaultVisits: 1000,
 };
+
+/** Auto GPU batch size for the running browser engine, from its last on-load
+ * forward-pass measurement (a safe middle before any measurement exists). This
+ * is the value the worker also picks for a search when batchSize is omitted. */
+export function recommendedBatchSize(): number {
+  return autoBatchSize(getEnginePerf());
+}
+
+/** The batch size the worker most recently searched with (auto or manual), or
+ * null before any browser analysis has run — for surfacing the live value in UI. */
+export function activeBatchSize(): number | null {
+  return getChosenBatchSize();
+}
 
 export type WebCandidate = {
   x: number;
@@ -115,7 +129,7 @@ export async function scoreTrajectory(args: {
   if (args.model.kind !== 'browser') return;
   const client = getKataGoEngineClient();
   const modelUrl = await netUrl(args.model);
-  const chunk = args.chunk ?? 24;
+  const chunk = args.chunk ?? recommendedBatchSize();
   for (let i = 0; i < args.positions.length; i += chunk) {
     if (args.signal?.aborted) return;
     const slice = args.positions.slice(i, i + chunk);
@@ -193,6 +207,9 @@ type AnalyzeArgs = {
   positionId: string;
   visits: number;
   komi?: number;
+  // GPU dispatch batch (browser only). Omit for auto — the engine sizes it to a
+  // latency budget from its on-load forward-pass measurement.
+  batchSize?: number;
   signal?: AbortSignal;
   onProgress?: (partial: WebAnalysis) => void;   // browser only — mid-search updates
   // The next move to always eval, with the board after it played (for the
@@ -296,6 +313,7 @@ async function analyzeBrowser(args: AnalyzeArgs): Promise<WebAnalysis | null> {
       komi: args.komi ?? 7.5,
       rules: 'chinese',
       visits: args.visits,
+      batchSize: args.batchSize,
       topK: 8,
       regionOfInterest: args.region
         ? { xMin: args.region.colMin, xMax: args.region.colMax, yMin: args.region.rowMin, yMax: args.region.rowMax }

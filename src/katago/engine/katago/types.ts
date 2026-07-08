@@ -1,4 +1,5 @@
 import type { BoardState, FloatArray, GameRules, KataGoBackendPreference, Move, Player, RegionOfInterest } from '../../types';
+import type { EnginePerf } from './autoBatch';
 
 export interface KataGoInitRequest {
   type: 'katago:init';
@@ -11,6 +12,7 @@ export interface KataGoInitResponse {
   ok: boolean;
   backend?: string;
   modelName?: string;
+  perf?: EnginePerf;
   error?: string;
 }
 
@@ -83,6 +85,8 @@ export interface KataGoAnalyzeUpdate {
   backend?: string;
   modelName?: string;
   analysis?: KataGoAnalysisPayload;
+  perf?: EnginePerf;
+  chosenBatchSize?: number;
   error?: string;
 }
 
@@ -94,6 +98,8 @@ export interface KataGoAnalyzeResponse {
   backend?: string;
   modelName?: string;
   analysis?: KataGoAnalysisPayload;
+  perf?: EnginePerf;
+  chosenBatchSize?: number;
   error?: string;
 }
 
@@ -124,6 +130,7 @@ export interface KataGoEvalResponse {
     rootScoreSelfplay: number;
     rootScoreStdev: number;
   };
+  perf?: EnginePerf;
   error?: string;
 }
 
@@ -156,6 +163,7 @@ export interface KataGoEvalBatchResponse {
     rootScoreSelfplay: number;
     rootScoreStdev: number;
   }>;
+  perf?: EnginePerf;
   error?: string;
 }
 
