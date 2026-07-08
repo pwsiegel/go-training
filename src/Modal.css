@@ -1,0 +1,56 @@
+/* Sits above the route-modal backdrop (z-index 1000) so nested dialogs stack. */
+.modal-backdrop {
+  position: fixed;
+  top: 0; bottom: 0; right: 0;
+  left: var(--sidebar-w, 0);
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+body.drawer-open .modal-backdrop { right: var(--drawer-w); }
+
+.modal-card {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+  max-width: min(92vw, 22rem);
+  max-height: 85vh;
+  overflow: auto;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-title { font-weight: 600; font-size: 0.95rem; }
+
+.modal-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  padding: 0;
+  font-size: 1.2rem;
+  line-height: 1;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.modal-close:hover { background: var(--bg-muted); color: var(--text); }
+
+.modal-body { padding: 0.5rem; }

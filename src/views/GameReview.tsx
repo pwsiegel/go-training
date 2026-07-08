@@ -13,7 +13,9 @@ import {
   addMove, buildTree, depthOf, deserializeVariations, leafOf, movesTo, nodeAtDepth,
   pathIds, pruneSubtree, serializeVariations, variationLines, type GameTree,
 } from '../variations';
-import { analyzePosition, scoreTrajectory, recommendedBatchSize, activeBatchSize, BROWSER_MODELS, LOCAL_MODEL, type WebAnalysis } from '../katago/webEngine';
+import { analyzePosition, scoreTrajectory, BROWSER_MODELS, LOCAL_MODEL, type WebAnalysis } from '../katago/webEngine';
+import { Modal } from '../Modal';
+import { EngineSettings } from '../EngineSettings';
 import { useEngineLease } from '../katago/engineLease';
 import { katagoBackendAvailable } from '../data/katago';
 import { Spinner } from '../Spinner';
@@ -78,7 +80,6 @@ export function GameReview() {
   // `reviews/{reviewId}` (owner-only) via a debounced, fire-and-forget writer.
   const [tree, setTree] = useState<GameTree | null>(null);
   const [line, setLine] = useState(0);
-  const settingsRef = useRef<HTMLDivElement>(null);
   const reviewIdRef = useRef<string | null>(null);
   const reviewCreatedRef = useRef(0);
   const lastSavedRef = useRef('[]');   // JSON of the last-persisted nodes
@@ -102,16 +103,6 @@ export function GameReview() {
     katagoBackendAvailable().then((ok) => { if (on) setLocalAvailable(ok); });
     return () => { on = false; };
   }, []);
-
-  // Close the settings menu on an outside click.
-  useEffect(() => {
-    if (!settingsOpen) return;
-    const onDown = (e: MouseEvent) => {
-      if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) setSettingsOpen(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [settingsOpen]);
 
   useEffect(() => {
     if (previewGame) return;
@@ -541,7 +532,7 @@ export function GameReview() {
             )}
           {outcome && <span className={`gr-outcome gr-outcome--${outcome}`}>{outcome === 'win' ? 'You won' : 'You lost'}</span>}
         </p>
-        <div className="gr-analyze-controls" ref={settingsRef}>
+        <div className="gr-analyze-controls">
           <button
             type="button"
             className={analyzeOn ? 'gr-analyze-btn active' : 'gr-analyze-btn'}
@@ -558,86 +549,17 @@ export function GameReview() {
           >
             ⚙
           </button>
-          {settingsOpen && (
-            <div className="gr-settings" role="menu">
-              <div className="gr-settings-head">Model</div>
-              {models.map((m) => (
-                <label key={m.id} className={m.id === modelId ? 'gr-model active' : 'gr-model'}>
-                  <input
-                    type="radio"
-                    name="katago-model"
-                    checked={m.id === modelId}
-                    onChange={() => setModelId(m.id)}
-                  />
-                  <span className="gr-model-main">
-                    <span className="gr-model-name">{m.name}</span>
-                    <span className="gr-model-sub">{m.runtime} · {m.strength}</span>
-                  </span>
-                  <input
-                    type="number"
-                    className="gr-model-visits"
-                    min={1}
-                    value={visitsByModel[m.id] ?? m.defaultVisits}
-                    onChange={(e) =>
-                      setVisitsByModel((v) => ({ ...v, [m.id]: Math.max(1, Math.floor(Number(e.target.value) || 1)) }))
-                    }
-                    aria-label={`${m.name} playouts`}
-                  />
-                  <span className="gr-model-visits-label">playouts</span>
-                  {(visitsByModel[m.id] ?? m.defaultVisits) !== m.defaultVisits && (
-                    <button
-                      type="button"
-                      className="gr-model-reset"
-                      onClick={() => setVisitsByModel((v) => ({ ...v, [m.id]: m.defaultVisits }))}
-                      title={`Reset to ${m.defaultVisits}`}
-                      aria-label={`Reset ${m.name} playouts to default (${m.defaultVisits})`}
-                    >
-                      ↺
-                    </button>
-                  )}
-                </label>
-              ))}
-              <div className="gr-settings-head">GPU batch</div>
-              <div className="gr-batch">
-                {batchOverride === null ? (
-                  <>
-                    <span className="gr-batch-auto">Auto — {activeBatchSize() ?? recommendedBatchSize()} / pass</span>
-                    <button
-                      type="button"
-                      className="gr-model-reset"
-                      onClick={() => setBatchOverride(activeBatchSize() ?? recommendedBatchSize())}
-                      title="Set a manual batch size"
-                      aria-label="Override the automatic batch size"
-                    >
-                      ✎
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <input
-                      type="number"
-                      className="gr-model-visits"
-                      min={1}
-                      value={batchOverride}
-                      onChange={(e) => setBatchOverride(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
-                      aria-label="Manual GPU batch size"
-                    />
-                    <span className="gr-model-visits-label">positions / pass</span>
-                    <button
-                      type="button"
-                      className="gr-model-reset"
-                      onClick={() => setBatchOverride(null)}
-                      title="Back to Auto"
-                      aria-label="Reset batch size to Auto"
-                    >
-                      ↺
-                    </button>
-                  </>
-                )}
-              </div>
-              <p className="gr-settings-note">Auto sizes each GPU pass to a latency budget. Lower it manually if a big GPU allocation fails.</p>
-            </div>
-          )}
+          <Modal open={settingsOpen} onClose={() => setSettingsOpen(false)} title="Analysis settings">
+            <EngineSettings
+              models={models}
+              modelId={modelId}
+              onModelId={setModelId}
+              visitsByModel={visitsByModel}
+              onVisitsChange={(id, v) => setVisitsByModel((prev) => ({ ...prev, [id]: v }))}
+              batchOverride={batchOverride}
+              onBatchOverride={setBatchOverride}
+            />
+          </Modal>
         </div>
       </div>
 

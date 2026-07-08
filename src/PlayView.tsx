@@ -6,6 +6,8 @@ import type { Color, Stone } from './types';
 import './PlayView.css';
 import { katagoBackendAvailable, type Region } from './data/katago';
 import { analyzePosition, BROWSER_MODELS, LOCAL_MODEL, type WebAnalysis } from './katago/webEngine';
+import { Modal } from './Modal';
+import { EngineSettings } from './EngineSettings';
 import { useEngineLease } from './katago/engineLease';
 
 type Tool = 'play' | 'addB' | 'addW' | 'region' | 'number' | 'letter' | 'triangle' | 'square';
@@ -70,6 +72,12 @@ export function PlayView({
   const [regionAnchor, setRegionAnchor] = useState<{ x: number; y: number } | null>(null);
   const [modelId, setModelId] = useState(BROWSER_MODELS[0].id);
   const [localAvailable, setLocalAvailable] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [visitsByModel, setVisitsByModel] = useState<Record<string, number>>(
+    () => Object.fromEntries([...BROWSER_MODELS, LOCAL_MODEL].map((m) => [m.id, m.defaultVisits])),
+  );
+  // GPU dispatch batch: null = Auto (engine sizes to a latency budget), else manual.
+  const [batchOverride, setBatchOverride] = useState<number | null>(null);
 
   // Browser models (WebGPU, ship to Pages) + the native backend when reachable.
   const models = useMemo(
@@ -120,7 +128,8 @@ export function PlayView({
       moves: history,
       toPlay: nextColor,
       positionId: posKey,
-      visits: model.defaultVisits,
+      visits: visitsByModel[model.id] ?? model.defaultVisits,
+      batchSize: batchOverride ?? undefined,
       region,
       signal: ctrl.signal,
     })
@@ -135,7 +144,7 @@ export function PlayView({
         });
       });
     return () => { active = false; ctrl.abort(); };
-  }, [aiOn, engineReady, model, posKey, stones, baseStones, history, nextColor, region]);
+  }, [aiOn, engineReady, model, posKey, stones, baseStones, history, nextColor, region, visitsByModel, batchOverride]);
 
   // Use the result only if it's for the current position; else we're still loading.
   const current = aiOn && aiResult?.key === posKey ? aiResult : null;
@@ -282,18 +291,28 @@ export function PlayView({
         <ToolButton active={aiOn} onClick={() => setAiOn((v) => !v)}>
           AI hints <span className="tool-counter">{aiLoading ? '…' : aiOn ? 'on' : 'off'}</span>
         </ToolButton>
-        {aiOn && models.length > 1 && (
-          <select
-            className="play-model"
-            value={modelId}
-            onChange={(e) => setModelId(e.target.value)}
-            aria-label="Analysis engine"
+        {aiOn && (
+          <button
+            type="button"
+            className="play-tool play-gear"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="Analysis settings"
+            title="Analysis settings"
           >
-            {models.map((m) => (
-              <option key={m.id} value={m.id}>{m.id === 'local' ? 'Native (Metal)' : `${m.id} · WebGPU`}</option>
-            ))}
-          </select>
+            ⚙
+          </button>
         )}
+        <Modal open={settingsOpen} onClose={() => setSettingsOpen(false)} title="Analysis settings">
+          <EngineSettings
+            models={models}
+            modelId={modelId}
+            onModelId={setModelId}
+            visitsByModel={visitsByModel}
+            onVisitsChange={(id, v) => setVisitsByModel((prev) => ({ ...prev, [id]: v }))}
+            batchOverride={batchOverride}
+            onBatchOverride={setBatchOverride}
+          />
+        </Modal>
         <ToolButton active={tool === 'region'} onClick={() => { setAiOn(true); setTool('region'); }}>
           Region <span className="tool-counter">{region ? 'set' : 'off'}</span>
         </ToolButton>

@@ -27,15 +27,10 @@
   font-weight: 500;
 }
 
-.play-model {
-  padding: 0.4rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-subtle);
-  color: var(--text);
-  font-family: inherit;
-  font-size: 0.9rem;
-  cursor: pointer;
+.play-gear {
+  align-self: flex-start;
+  font-size: 1rem;
+  line-height: 1;
 }
 
 .play-tools {
