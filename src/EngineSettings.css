@@ -1,0 +1,85 @@
+.engine-settings { min-width: 18rem; }
+
+.es-head {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+  padding: 0.35rem 0.35rem 0.4rem;
+}
+
+.es-model {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.35rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.es-model:hover { background: var(--bg-subtle); }
+.es-model.active { background: var(--bg-muted); }
+
+.es-model-main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
+}
+
+.es-model-name { font-weight: 500; }
+
+.es-model-sub {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.es-num {
+  width: 4.5rem;
+  padding: 0.2rem 0.4rem;
+  font: inherit;
+  font-size: 0.82rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.es-num-label {
+  color: var(--text-faint);
+  font-size: 0.78rem;
+}
+
+.es-reset {
+  padding: 0.1rem 0.3rem;
+  font-size: 0.95rem;
+  line-height: 1;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.es-reset:hover { color: var(--text); }
+
+.es-batch {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.35rem;
+}
+
+.es-batch-auto {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.es-note {
+  margin: 0.2rem 0 0;
+  padding: 0 0.35rem 0.2rem;
+  color: var(--text-faint);
+  font-size: 0.72rem;
+}

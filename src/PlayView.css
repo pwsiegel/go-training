@@ -27,15 +27,25 @@
   font-weight: 500;
 }
 
-.play-model {
-  padding: 0.4rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-subtle);
-  color: var(--text);
-  font-family: inherit;
-  font-size: 0.9rem;
-  cursor: pointer;
+/* AI hints + gear share one full-width row, so together they span the same
+   width as the other toolbar buttons (e.g. Region). */
+.play-ai-row {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.play-ai-row > .play-tool:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.play-gear {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.45rem 0.6rem;
+  font-size: 1rem;
 }
 
 .play-tools {
