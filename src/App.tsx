@@ -44,8 +44,9 @@ function Sidebar({ teacherMode, canToggle, onToggle }: {
       <nav className="sidebar-links" aria-label="Primary">
         {!teacherMode && <NavLink to="/" end className={navClass}>Home</NavLink>}
         <div className="sidebar-group">
-          <span className="sidebar-group-label">Solve tsumego</span>
-          {!teacherMode && <NavLink to="/library" className={subNavClass}>Library</NavLink>}
+          {teacherMode
+            ? <span className="sidebar-group-label">Solve tsumego</span>
+            : <NavLink to="/library" className={navClass}>Solve tsumego</NavLink>}
           <NavLink to="/submissions" end className={subNavClass}>Submissions</NavLink>
           <NavLink to="/history" className={subNavClass}>History</NavLink>
         </div>
