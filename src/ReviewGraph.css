@@ -4,7 +4,17 @@
 /* Height follows width (aspect-locked), so the graph never scales with panel or
  * screen height — bump H in ReviewGraph.tsx to make it taller relative to width. */
 .rg-svg { display: block; width: 100%; height: auto; }
-.rg-zero { stroke: var(--border); stroke-width: 1; }
+.rg-zero { stroke: var(--text-muted); stroke-width: 1; stroke-dasharray: 2 3; opacity: 0.6; }
+.rg-zero-label {
+  position: absolute;
+  left: 4px;
+  transform: translateY(-50%);
+  padding: 0 3px;
+  background: var(--bg-subtle);
+  font-size: 9px;
+  color: var(--text-faint);
+  pointer-events: none;
+}
 .rg-area { fill: var(--accent); fill-opacity: 0.13; }
 .rg-line { fill: none; stroke: var(--accent); stroke-width: 1.6; }
 .rg-playhead { stroke: var(--text); stroke-opacity: 0.5; stroke-width: 1; stroke-dasharray: 3 3; }
