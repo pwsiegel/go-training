@@ -154,7 +154,22 @@ export async function scoreTrajectory(args: {
   onChunk: (fromMove: number, blackScores: number[]) => void;
   signal?: AbortSignal;
 }): Promise<void> {
-  if (args.model.kind !== 'browser') return;
+  // Native backend has no batch primitive, so evaluate each position with a
+  // cheap low-visit search and stream results as they land (the curve fills in).
+  if (args.model.kind !== 'browser') {
+    for (let i = 0; i < args.positions.length; i++) {
+      if (args.signal?.aborted) return;
+      const p = args.positions[i];
+      try {
+        const lead = await valueOf(args.model, p.stones, p.toPlay, p.moves, args.komi, args.signal);
+        if (args.signal?.aborted) return;
+        args.onChunk(i, [lead]);
+      } catch {
+        if (args.signal?.aborted) return;   // else skip this point and keep going
+      }
+    }
+    return;
+  }
   const client = getKataGoEngineClient();
   const modelUrl = await netUrl(args.model);
   const chunk = args.chunk ?? recommendedBatchSize();

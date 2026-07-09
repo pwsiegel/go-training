@@ -378,7 +378,7 @@ export function GameReview() {
   // id equals its depth (see buildTree), so scores are keyed by depth directly.
   const trajSig = `${model.id}:${visits}`;
   useEffect(() => {
-    if (!analyzeOn || !game || model.kind !== 'browser' || !engineReady) return;
+    if (!analyzeOn || !game || !engineReady) return;
     if (trajRanRef.current) return;   // ran once this game; settings changes use Rerun
     trajRanRef.current = true;
     setTrajFor(trajSig);
@@ -655,24 +655,22 @@ export function GameReview() {
           {analyzeOn ? (
             <div className="gr-graph-card">
               <div className="gr-graph-head">
-                <span className="gr-graph-title">Score timeline <span className="gr-hint">· click or drag to seek</span></span>
+                {trajRunning ? (
+                  <span className="gr-rerun gr-rerun-busy"><Spinner label="Analyzing…" /></span>
+                ) : (
+                  <button
+                    type="button"
+                    className={`gr-rerun${trajStale ? ' stale' : ''}`}
+                    onClick={rerun}
+                    aria-label="Recompute the score graph from scratch"
+                    title={trajStale ? 'Settings changed — recompute the score graph' : 'Recompute the score graph from scratch'}
+                  >
+                    ↻
+                  </button>
+                )}
                 <span className="gr-graph-kata">
                   {currentAnalysis && (
                     <span>KataGo <strong>{scoreLabel(currentAnalysis.rootScoreLead)}</strong> · {currentAnalysis.rootVisits}v</span>
-                  )}
-                  {model.kind === 'browser' && (
-                    trajRunning
-                      ? <span className="gr-rerun gr-rerun-busy"><Spinner label="Analyzing…" /></span>
-                      : (
-                        <button
-                          type="button"
-                          className={`gr-rerun${trajStale ? ' stale' : ''}`}
-                          onClick={rerun}
-                          title={trajStale ? 'Settings changed — recompute the score graph' : 'Recompute the score graph'}
-                        >
-                          Rerun
-                        </button>
-                      )
                   )}
                 </span>
               </div>
