@@ -1,197 +1,229 @@
+/* Single-screen game review: the page fills the viewport and never scrolls;
+   the board is sized to fit (see GameReview.tsx) and the right panel — graph,
+   controls, move list — scrolls internally. */
 .gr {
-  max-width: 60rem;
-  margin: 0 auto;
-  padding: 1.5rem 1.5rem 4rem;
-}
-
-.gr-head {
-  margin-bottom: 0.75rem;
-}
-
-.gr-back {
-  font-size: 0.9rem;
-}
-
-.gr-head h1 {
-  margin: 0.3rem 0 0.15rem;
-}
-
-.gr-rank {
-  color: var(--text-muted);
-  font-weight: 400;
-}
-
-.gr-meta {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 0.9rem;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 /* Win/loss accent for a game one of the viewer's own accounts played. */
 .gr--win { border-top: 3px solid var(--success); }
 .gr--loss { border-top: 3px solid var(--error); }
 
+/* --- compact single-row header --- */
+.gr-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  height: 3.25rem;
+  padding: 0 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.gr-back { font-size: 0.85rem; text-decoration: none; white-space: nowrap; }
+
+.gr-title {
+  margin: 0;
+  min-width: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gr-rank { color: var(--text-muted); font-weight: 600; }
+.gr-vs { color: var(--text-faint); font-weight: 400; }
+
+.gr-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.gr-dot { color: var(--border); }
 .gr-result--win { color: var(--success-strong); }
 .gr-result--loss { color: var(--error-strong); }
 
 .gr-outcome {
-  display: inline-block;
-  margin-left: 0.5rem;
-  padding: 0.05rem 0.45rem;
-  border-radius: 999px;
-  font-size: 0.78rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 5px;
+  font-size: 0.72rem;
   font-weight: 600;
 }
-
 .gr-outcome--win { color: var(--success-strong); background: var(--success-bg); }
 .gr-outcome--loss { color: var(--error-strong); background: var(--error-bg); }
 
-.gr-analyze-controls {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin-top: 0.5rem;
+.gr-head-spacer { flex: 1; }
+
+.gr-analyze-btn {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.82rem;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
 }
+.gr-analyze-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 .gr-gear {
-  width: 1.9rem;
-  height: 1.9rem;
+  width: 2rem;
+  height: 2rem;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
   font-size: 1rem;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 7px;
   background: var(--bg);
   color: var(--text-muted);
   cursor: pointer;
 }
+.gr-gear:hover { color: var(--text); border-color: var(--text-muted); }
 
-.gr-gear:hover {
-  color: var(--text);
-  border-color: var(--text-muted);
-}
-
-.gr-analyze-btn {
-  padding: 0.3rem 0.7rem;
-  font-size: 0.85rem;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--text);
-  cursor: pointer;
-}
-
-.gr-analyze-btn.active {
-  background: var(--accent, var(--text));
-  border-color: var(--accent, var(--text));
-  color: var(--bg);
-}
-
-.gr-analyze-err {
-  color: var(--error);
-}
-
-/* --- board + move list --- */
-
-.gr-main { display: flex; flex-direction: column; }
-
-/* Board + table share a row so the table matches the board square's height;
- * the scrubber/status sit below, offset to span only the board's width. */
-.gr-play {
+/* --- two-column content: board (left) + panel (right) --- */
+.gr-body {
+  flex: 1;
+  min-height: 0;
   display: flex;
-  gap: 1.5rem;
-  align-items: stretch;
+  gap: 0.75rem;
+  padding: 0.9rem;
+  justify-content: center;
+}
+.gr-body--stacked {
+  flex-direction: column;
+  align-items: center;
+  overflow-y: auto;
 }
 
 .gr-board-square {
-  flex: 1;
-  min-width: 0;
+  flex: none;
+  align-self: center;
   line-height: 0;   /* no descender gap under the board svg */
 }
+/* The board svg caps at 720px app-wide; here the square can be larger, so let it
+ * fill — otherwise the wood stops short and leaves a dark strip before the panel. */
+.gr-board-square .board { max-width: none; }
 
-.gr-underboard { margin-right: calc(18rem + 1.5rem); }
+.gr-panel {
+  flex: 1;
+  min-width: 300px;
+  max-width: 460px;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-height: 0;
+}
+.gr-body--stacked .gr-panel { max-width: none; width: 100%; align-self: stretch; }
 
-.gr-scrub {
+/* Graph card — doubles as the move scrubber. Content-height; the graph inside is
+ * aspect-locked (its height follows its width), so the card never balloons. */
+.gr-graph-card {
+  flex: none;
+  padding: 0.7rem 0.8rem;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.gr-graph-head {
   display: flex;
   align-items: center;
-  gap: 0.3rem;
-  margin-top: 0.5rem;
-}
-
-.gr-scrub button {
-  padding: 0.25rem 0.4rem;
-  border: 1px solid var(--border);
-  background: var(--bg-subtle);
-  color: var(--text);
-  border-radius: 4px;
-  cursor: pointer;
-  font-family: inherit;
-}
-
-.gr-scrub button:hover:not(:disabled) { background: var(--bg-muted); }
-.gr-scrub button:disabled { opacity: 0.4; cursor: default; }
-.gr-scrub input[type='range'] { flex: 1; min-width: 0; }
-
-.gr-status {
-  margin-top: 0.4rem;
-  font-size: 0.9rem;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.75rem;
   color: var(--text-muted);
 }
+.gr-hint { color: var(--text-faint); }
+.gr-graph-kata { display: inline-flex; align-items: center; gap: 0.5rem; white-space: nowrap; }
+.gr-graph-empty {
+  height: 150px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 0.82rem;
+}
 
-.gr-status-var { color: var(--accent); font-weight: 600; }
-
-/* AI analysis readout, above the board. */
 .gr-analysis {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  min-height: 1.6rem;
-  margin-bottom: 0.6rem;
-  font-size: 0.9rem;
+  min-height: 1.3rem;
+  margin-top: 0.4rem;
+  font-size: 0.82rem;
   color: var(--text-muted);
 }
-
 .gr-loss { color: var(--error); }
 .gr-analyze-wait { color: var(--accent); font-weight: 500; }
-
-.gr-graph { position: relative; }
+.gr-analyze-err { color: var(--error); }
 
 .gr-rerun {
-  position: absolute;
-  top: 0.3rem;
-  right: 0.3rem;
-  padding: 0.15rem 0.5rem;
+  padding: 0.1rem 0.45rem;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-soft);
   color: var(--text-muted);
-  font-size: 0.76rem;
+  font-size: 0.72rem;
   cursor: pointer;
 }
-
 .gr-rerun:hover { color: var(--text); border-color: var(--text-muted); }
 .gr-rerun.stale { color: var(--accent); border-color: var(--accent); }
 .gr-rerun-busy { cursor: default; display: inline-flex; align-items: center; }
 
-/* Two-column move table: Game (mainline) | Variations. The wrapper stretches to
- * the board's height (align-items: stretch) while the absolutely-filled scroller
- * keeps a long game from growing the row. */
-.gr-moves-wrap {
-  position: relative;
-  width: 18rem;
-  align-self: stretch;
-}
+/* Slider fallback shown when AI review is off (no graph to scrub on). */
+.gr-scrub-bar { flex: none; display: flex; }
+.gr-scrub-bar input[type='range'] { flex: 1; min-width: 0; }
 
-.gr-moves-scroll {
-  position: absolute;
-  inset: 0;
-  overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+/* Playback controls + move / estimate readout. */
+.gr-controls {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
 }
+.gr-controls button {
+  width: 2.1rem;
+  height: 2.1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.8rem;
+}
+.gr-controls button:hover:not(:disabled) { background: var(--bg-muted); }
+.gr-controls button:disabled { opacity: 0.4; cursor: default; }
+.gr-controls-spacer { flex: 1; }
+
+.gr-readout { text-align: right; line-height: 1.2; }
+.gr-readout-move { font-size: 0.78rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.gr-readout-est { font-size: 0.85rem; font-weight: 600; }
+.gr-status-var { color: var(--accent); font-weight: 600; }
+
+/* Move list fills the rest of the panel and scrolls internally. */
+.gr-moves-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.gr-body--stacked .gr-moves-panel { flex: none; height: 16rem; }
 
 .gr-moves {
   border-collapse: collapse;
@@ -212,7 +244,7 @@
   letter-spacing: 0.03em;
   color: var(--text-faint);
   padding: 0.35rem 0.4rem;
-  background: var(--bg);
+  background: var(--bg-subtle);
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
   overflow: hidden;
@@ -228,7 +260,7 @@
   bottom: 0;
   padding: 0.3rem 0.5rem;
   text-align: center;
-  background: var(--bg);
+  background: var(--bg-subtle);
   border-top: 1px solid var(--border);
 }
 
@@ -289,7 +321,7 @@
 }
 
 /* Chips marking where a variation (or sub-variation) branches off — an
- * enter-button plus a hover-revealed delete. */
+   enter-button plus a hover-revealed delete. */
 .gr-previews { display: flex; flex-wrap: wrap; gap: 0.25rem; padding: 0.2rem 0.4rem; }
 
 .gr-mv-preview {
@@ -342,9 +374,3 @@
 }
 
 .gr-mv-preview-del:hover { color: var(--error); }
-
-@media (max-width: 720px) {
-  .gr-play { flex-direction: column; }
-  .gr-moves-wrap { width: 100%; height: 16rem; }
-  .gr-underboard { margin-right: 0; }
-}

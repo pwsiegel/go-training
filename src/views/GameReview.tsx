@@ -19,7 +19,7 @@ import { EngineSettings } from '../EngineSettings';
 import { useEngineLease } from '../katago/engineLease';
 import { katagoBackendAvailable } from '../data/katago';
 import { Spinner } from '../Spinner';
-import { ScoreGraph } from '../ScoreGraph';
+import { ReviewGraph } from '../ReviewGraph';
 import './GameReview.css';
 
 const COLS = 'ABCDEFGHJKLMNOPQRST';
@@ -85,6 +85,35 @@ export function GameReview() {
   const lastSavedRef = useRef('[]');   // JSON of the last-persisted nodes
   const dirtyRef = useRef<{ json: string; nodes: SavedNode[]; gameId: string; ownerUid: string } | null>(null);
   const saveTimerRef = useRef<number | null>(null);
+
+  // Board square is sized from the content area so the whole review — header,
+  // graph, board, controls, move list — fits one screen without page scroll.
+  // Below a narrow width the columns stack and the body scrolls internally.
+  const [boardSize, setBoardSize] = useState(480);
+  const [stacked, setStacked] = useState(false);
+  const bodyObs = useRef<ResizeObserver | null>(null);
+  const bodyRef = useCallback((el: HTMLDivElement | null) => {
+    bodyObs.current?.disconnect();
+    if (!el) return;
+    const measure = () => {
+      const cs = getComputedStyle(el);
+      const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+      const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+      const gap = parseFloat(cs.columnGap) || 20;
+      const availW = el.clientWidth - padX;
+      const availH = el.clientHeight - padY;
+      const stack = availW < 720;
+      const side = stack
+        ? Math.max(280, Math.min(availW, availH * 0.82, 560))
+        : Math.max(300, Math.min(availH, availW - (availW < 1000 ? 320 : 380) - gap, 820));
+      setBoardSize(Math.floor(side));
+      setStacked(stack);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    bodyObs.current = ro;
+  }, []);
 
   // Offer the native-backend model only when it's reachable (dev with `make api`).
   const models = useMemo(
@@ -243,8 +272,21 @@ export function GameReview() {
 
   const shown = useMemo(() => replay(lineMoves.slice(0, cursor)), [lineMoves, cursor]);
 
+  // Keep the active move visible by scrolling only the move-list container —
+  // never the page (scrollIntoView would drag the whole layout up when the list
+  // is near the bottom). Accounts for the sticky header height.
   const activeRef = useRef<HTMLTableRowElement>(null);
-  useEffect(() => { activeRef.current?.scrollIntoView({ block: 'nearest' }); }, [cursor, line]);
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const row = activeRef.current;
+    const box = listRef.current;
+    if (!row || !box) return;
+    const rowRect = row.getBoundingClientRect();
+    const boxRect = box.getBoundingClientRect();
+    const headH = box.querySelector('thead')?.getBoundingClientRect().height ?? 0;
+    if (rowRect.top < boxRect.top + headH) box.scrollTop -= boxRect.top + headH - rowRect.top;
+    else if (rowRect.bottom > boxRect.bottom) box.scrollTop += rowRect.bottom - boxRect.bottom;
+  }, [cursor, line]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -524,174 +566,184 @@ export function GameReview() {
       ]
     : undefined;
 
+  // The live-analysis line under the graph — null when there's nothing to show
+  // (e.g. at the last move), so the card doesn't reserve an empty row.
+  const analysisLine = engineStatus === 'waiting'
+    ? <span className="gr-analyze-wait">KataGo AI is running in another tab or window — turn it off there (or close it) to use it here.</span>
+    : running ? <Spinner label="Analyzing…" />
+      : analysisErr ? <span className="gr-analyze-err">{analysisErr}</span>
+        : (currentAnalysis && playedNext && currentAnalysis.playedEval) ? (() => {
+            // pointsLost can be slightly negative (played move beat the search's
+            // best at low visits) — sign it, don't prefix "−".
+            const loss = currentAnalysis.playedEval.pointsLost;
+            return (
+              <>played {coordLabel(playedNext.x, playedNext.y)}{' '}
+                <span className={loss > 0.05 ? 'gr-loss' : undefined}>
+                  ({loss < 0 ? '+' : '−'}{Math.abs(loss).toFixed(1)})
+                </span>
+              </>
+            );
+          })()
+          : null;
+
   return (
     <div className={`gr${outcome ? ` gr--${outcome}` : ''}`}>
       <div className="gr-head">
         <Link to={backTo} className="gr-back">← Games</Link>
-        <h1 className="gr-players">
-          {info.playerBlack} <span className="gr-rank">[{info.rankBlack}]</span> vs.{' '}
+        <h1 className="gr-title">
+          {info.playerBlack} <span className="gr-rank">[{info.rankBlack}]</span>
+          <span className="gr-vs"> vs. </span>
           {info.playerWhite} <span className="gr-rank">[{info.rankWhite}]</span>
         </h1>
-        <p className="gr-meta">
-          {when}
-          {game.myColor && game.ownerUid === user?.uid && <> · you played {game.myColor === 'B' ? 'Black' : 'White'}</>}
-          {' · '}{mainlineTotal} moves
-          {game.finalScore != null
-            ? <> · final estimate <strong>{scoreLabel(game.finalScore)}</strong></>
-            : info.result && (
-              <> · <strong className={outcome ? `gr-result gr-result--${outcome}` : undefined}>{info.result}</strong></>
-            )}
-          {outcome && <span className={`gr-outcome gr-outcome--${outcome}`}>{outcome === 'win' ? 'You won' : 'You lost'}</span>}
-        </p>
-        <div className="gr-analyze-controls">
-          <button
-            type="button"
-            className={analyzeOn ? 'gr-analyze-btn active' : 'gr-analyze-btn'}
-            onClick={() => setAnalyzeOn((o) => !o)}
-          >
-            {analyzeOn ? 'AI review: on' : 'AI review'}
-          </button>
-          <button
-            type="button"
-            className="gr-gear"
-            onClick={() => setSettingsOpen((o) => !o)}
-            aria-label="Analysis settings"
-            aria-expanded={settingsOpen}
-          >
-            ⚙
-          </button>
-          <Modal open={settingsOpen} onClose={() => setSettingsOpen(false)} title="Analysis settings">
-            <EngineSettings
-              models={models}
-              modelId={modelId}
-              onModelId={(id) => { userPickedModel.current = true; setModelId(id); }}
-              visitsByModel={visitsByModel}
-              onVisitsChange={(id, v) => setVisitsByModel((prev) => ({ ...prev, [id]: v }))}
-              batchOverride={batchOverride}
-              onBatchOverride={setBatchOverride}
-            />
-          </Modal>
-        </div>
+        <span className="gr-meta">
+          <span>{when}</span>
+          <span className="gr-dot">·</span>
+          <span>{mainlineTotal} moves</span>
+          {game.finalScore != null ? (
+            <><span className="gr-dot">·</span><strong>{scoreLabel(game.finalScore)}</strong></>
+          ) : info.result ? (
+            <><span className="gr-dot">·</span>
+              <strong className={outcome ? `gr-result gr-result--${outcome}` : undefined}>{info.result}</strong></>
+          ) : null}
+          {outcome && (
+            <span className={`gr-outcome gr-outcome--${outcome}`}>{outcome === 'win' ? 'You won' : 'You lost'}</span>
+          )}
+        </span>
+        <div className="gr-head-spacer" />
+        <button
+          type="button"
+          className={analyzeOn ? 'gr-analyze-btn active' : 'gr-analyze-btn'}
+          onClick={() => setAnalyzeOn((o) => !o)}
+        >
+          {analyzeOn ? 'AI review: on' : 'AI review'}
+        </button>
+        <button
+          type="button"
+          className="gr-gear"
+          onClick={() => setSettingsOpen((o) => !o)}
+          aria-label="Analysis settings"
+          aria-expanded={settingsOpen}
+        >
+          ⚙
+        </button>
+        <Modal open={settingsOpen} onClose={() => setSettingsOpen(false)} title="Analysis settings">
+          <EngineSettings
+            models={models}
+            modelId={modelId}
+            onModelId={(id) => { userPickedModel.current = true; setModelId(id); }}
+            visitsByModel={visitsByModel}
+            onVisitsChange={(id, v) => setVisitsByModel((prev) => ({ ...prev, [id]: v }))}
+            batchOverride={batchOverride}
+            onBatchOverride={setBatchOverride}
+          />
+        </Modal>
       </div>
 
-      {analyzeOn && (
-        <div className="gr-graph">
-          <ScoreGraph points={points} total={total} cursor={cursor} onSeek={seek} />
-          {model.kind === 'browser' && (
-            trajRunning
-              ? <span className="gr-rerun gr-rerun-busy"><Spinner label="Analyzing…" /></span>
-              : (
-                <button
-                  type="button"
-                  className={`gr-rerun${trajStale ? ' stale' : ''}`}
-                  onClick={rerun}
-                  title={trajStale ? 'Settings changed — recompute the score graph' : 'Recompute the score graph'}
-                >
-                  Rerun
-                </button>
-              )
+      <div className={`gr-body${stacked ? ' gr-body--stacked' : ''}`} ref={bodyRef}>
+        <div className="gr-board-square" style={{ width: boardSize, height: boardSize }}>
+          <Board
+            stones={shown.stones}
+            annotations={annotations}
+            aiCandidates={aiCandidates}
+            spinnerAt={showTop ? { x: showTop.x, y: showTop.y } : null}
+            ghostStone={playedNext ? { x: playedNext.x, y: playedNext.y, color: playedNext.color } : null}
+            onPlay={(x, y) => playAt(x, y)}
+          />
+        </div>
+
+        <div className="gr-panel">
+          {analyzeOn ? (
+            <div className="gr-graph-card">
+              <div className="gr-graph-head">
+                <span className="gr-graph-title">Score timeline <span className="gr-hint">· click or drag to seek</span></span>
+                <span className="gr-graph-kata">
+                  {currentAnalysis && (
+                    <span>KataGo <strong>{scoreLabel(currentAnalysis.rootScoreLead)}</strong> · {currentAnalysis.rootVisits}v</span>
+                  )}
+                  {model.kind === 'browser' && (
+                    trajRunning
+                      ? <span className="gr-rerun gr-rerun-busy"><Spinner label="Analyzing…" /></span>
+                      : (
+                        <button
+                          type="button"
+                          className={`gr-rerun${trajStale ? ' stale' : ''}`}
+                          onClick={rerun}
+                          title={trajStale ? 'Settings changed — recompute the score graph' : 'Recompute the score graph'}
+                        >
+                          Rerun
+                        </button>
+                      )
+                  )}
+                </span>
+              </div>
+              {points.length > 1 ? (
+                <ReviewGraph points={points} total={total} cursor={cursor} onSeek={seek} />
+              ) : (
+                <div className="gr-graph-empty">
+                  {running ? <Spinner label="Analyzing…" /> : 'The score timeline appears as KataGo analyzes the game.'}
+                </div>
+              )}
+              {analysisLine && <div className="gr-analysis">{analysisLine}</div>}
+            </div>
+          ) : (
+            <div className="gr-scrub-bar">
+              <input type="range" min={0} max={total} value={cursor} onChange={(e) => seek(Number(e.target.value))} aria-label="Move" />
+            </div>
           )}
-        </div>
-      )}
 
-      {analyzeOn && (
-        <div className="gr-analysis">
-          {engineStatus === 'waiting' ? (
-            <span className="gr-analyze-wait">
-              KataGo AI is running in another tab or window — turn it off there (or close it) to use it here.
-            </span>
-          ) : running ? <Spinner label="Analyzing…" />
-            : analysisErr ? <span className="gr-analyze-err">{analysisErr}</span>
-              : currentAnalysis ? (
-                <>
-                  KataGo <strong>{scoreLabel(currentAnalysis.rootScoreLead)}</strong>
-                  {' · '}{currentAnalysis.rootVisits}v
-                  {playedNext && currentAnalysis.playedEval && (() => {
-                    // pointsLost can be slightly negative (played move beat the
-                    // search's best at low visits) — sign it, don't prefix "−".
-                    const loss = currentAnalysis.playedEval.pointsLost;
-                    return (
-                      <> · played {coordLabel(playedNext.x, playedNext.y)}{' '}
-                        <span className={loss > 0.05 ? 'gr-loss' : undefined}>
-                          ({loss < 0 ? '+' : '−'}{Math.abs(loss).toFixed(1)})
-                        </span>
-                      </>
-                    );
-                  })()}
-                </>
-              ) : null}
-        </div>
-      )}
-
-      <div className="gr-main">
-        <div className="gr-play">
-          <div className="gr-board-square">
-            <Board
-              stones={shown.stones}
-              annotations={annotations}
-              aiCandidates={aiCandidates}
-              spinnerAt={showTop ? { x: showTop.x, y: showTop.y } : null}
-              ghostStone={playedNext ? { x: playedNext.x, y: playedNext.y, color: playedNext.color } : null}
-              onPlay={(x, y) => playAt(x, y)}
-            />
-          </div>
-
-        <div className="gr-moves-wrap">
-        <div className="gr-moves-scroll">
-        <table className="gr-moves">
-          <thead>
-            <tr>
-              <th>Game</th>
-              <th>{onMainline ? 'Variations' : `Variation · from move ${branchPoint > 0 ? branchPoint : 'start'}`}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {Array.from({ length: maxRows }, (_, k) => k + 1).map((i) => {
-              const gameNode = i <= mainLen ? mainNodeIds[i] : null;
-              const varNode = !onMainline && i > branchPoint && i < lineNodeIds.length ? lineNodeIds[i] : null;
-              const previews = previewsAt(i);
-              const rowActive = cursor === i;
-              return (
-                <tr key={i} ref={rowActive ? activeRef : null}>
-                  <td className="gr-cell">
-                    {gameNode != null && moveCell(gameNode, i, rowActive && activeIsMain, true, () => goGame(i))}
-                  </td>
-                  <td className="gr-cell gr-cell-var">
-                    {varNode != null && moveCell(varNode, i, rowActive && !activeIsMain, gameNode == null, () => goVar(i))}
-                    {previews.length > 0 && (
-                      <span className="gr-previews">{previews.map((c) => previewChip(c))}</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-          {lines.length > 0 && (
-            <tfoot>
-              <tr>
-                <td colSpan={2} className="gr-moves-foot">
-                  <button type="button" onClick={clearLines}>Clear all variations</button>
-                </td>
-              </tr>
-            </tfoot>
-          )}
-        </table>
-        </div>
-        </div>
-        </div>
-
-        <div className="gr-underboard">
-          <div className="gr-scrub">
+          <div className="gr-controls">
             <button type="button" onClick={() => seek(0)} disabled={cursor === 0} aria-label="Start">⏮</button>
             <button type="button" onClick={() => seek(cursor - 1)} disabled={cursor === 0} aria-label="Previous">◀</button>
-            <input type="range" min={0} max={total} value={cursor} onChange={(e) => seek(Number(e.target.value))} aria-label="Move" />
             <button type="button" onClick={() => seek(cursor + 1)} disabled={cursor === total} aria-label="Next">▶</button>
             <button type="button" onClick={() => seek(total)} disabled={cursor === total} aria-label="End">⏭</button>
+            <div className="gr-controls-spacer" />
+            <div className="gr-readout">
+              <div className="gr-readout-move">
+                move {cursor} / {total}{!onMainline && <> · <span className="gr-status-var">variation</span></>}
+              </div>
+              {cursorScore !== null && <div className="gr-readout-est">estimate <strong>{scoreLabel(cursorScore)}</strong></div>}
+            </div>
           </div>
-          <div className="gr-status">
-            move {cursor} / {total}
-            {!onMainline && <> · <span className="gr-status-var">variation</span></>}
-            {cursorScore !== null && <> · estimate <strong>{scoreLabel(cursorScore)}</strong></>}
+
+          <div className="gr-moves-panel" ref={listRef}>
+            <table className="gr-moves">
+              <thead>
+                <tr>
+                  <th>Game</th>
+                  <th>{onMainline ? 'Variations' : `Variation · from move ${branchPoint > 0 ? branchPoint : 'start'}`}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from({ length: maxRows }, (_, k) => k + 1).map((i) => {
+                  const gameNode = i <= mainLen ? mainNodeIds[i] : null;
+                  const varNode = !onMainline && i > branchPoint && i < lineNodeIds.length ? lineNodeIds[i] : null;
+                  const previews = previewsAt(i);
+                  const rowActive = cursor === i;
+                  return (
+                    <tr key={i} ref={rowActive ? activeRef : null}>
+                      <td className="gr-cell">
+                        {gameNode != null && moveCell(gameNode, i, rowActive && activeIsMain, true, () => goGame(i))}
+                      </td>
+                      <td className="gr-cell gr-cell-var">
+                        {varNode != null && moveCell(varNode, i, rowActive && !activeIsMain, gameNode == null, () => goVar(i))}
+                        {previews.length > 0 && (
+                          <span className="gr-previews">{previews.map((c) => previewChip(c))}</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              {lines.length > 0 && (
+                <tfoot>
+                  <tr>
+                    <td colSpan={2} className="gr-moves-foot">
+                      <button type="button" onClick={clearLines}>Clear all variations</button>
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
           </div>
         </div>
       </div>

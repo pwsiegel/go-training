@@ -1,0 +1,44 @@
+.rg-wrap { cursor: crosshair; touch-action: none; user-select: none; }
+.rg-chart { position: relative; }
+
+/* Height follows width (aspect-locked), so the graph never scales with panel or
+ * screen height — bump H in ReviewGraph.tsx to make it taller relative to width. */
+.rg-svg { display: block; width: 100%; height: auto; }
+.rg-zero { stroke: var(--border); stroke-width: 1; }
+.rg-area { fill: var(--accent); fill-opacity: 0.13; }
+.rg-line { fill: none; stroke: var(--accent); stroke-width: 1.6; }
+.rg-playhead { stroke: var(--text); stroke-opacity: 0.5; stroke-width: 1; stroke-dasharray: 3 3; }
+.rg-hover-line { stroke: var(--text); stroke-opacity: 0.18; stroke-width: 1; }
+.rg-dot { fill: var(--accent); stroke: var(--bg); stroke-width: 1.4; }
+
+.rg-corner {
+  position: absolute;
+  left: 4px;
+  font-size: 9px;
+  color: var(--text-faint);
+  pointer-events: none;
+}
+.rg-corner-top { top: 2px; }
+.rg-corner-bot { bottom: 2px; }
+
+.rg-ticks {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 2px 0;
+  font-size: 9px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.rg-tip {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  background: var(--bg-muted);
+  color: var(--text);
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+}
