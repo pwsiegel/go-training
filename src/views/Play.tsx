@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Board, type Annotation } from '../Board';
 import { playMove, replay, type PlayError } from '../goRules';
@@ -7,6 +7,7 @@ import { genmoveBrowser } from '../katago/webEngine';
 import { useEngineLease } from '../katago/engineLease';
 import { genmove, katagoBackendAvailable } from '../data/katago';
 import { saveGame } from '../data/games';
+import { setPlayDefaults } from '../data/profile';
 import type { GameDoc } from '../data/model';
 import { toSgf } from '../sgf';
 import { useAuth } from '../auth';
@@ -78,6 +79,21 @@ export function Play() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Seed the setup form from the user's last-used settings once the profile
+  // loads (before their first game); after that, local state is authoritative.
+  const seededDefaults = useRef(false);
+  useEffect(() => {
+    const d = profile?.playDefaults;
+    if (seededDefaults.current || !d || phase !== 'setup') return;
+    seededDefaults.current = true;
+    setColorChoice(d.colorChoice);
+    setRank(d.rank);
+    setTemperature(d.temperature);
+    setMoveDelay(d.moveDelay);
+    setScoreMode(d.scoreMode);
+    setAlertThreshold(d.alertThreshold);
+  }, [profile, phase]);
 
   const atLive = viewing === null;
   const viewIndex = viewing ?? history.length;
@@ -210,6 +226,11 @@ export function Play() {
     const resolved: Color = colorChoice === 'random'
       ? (Math.random() < 0.5 ? 'B' : 'W')
       : colorChoice;
+    if (user) {
+      void setPlayDefaults(user.uid, {
+        colorChoice, rank, temperature, moveDelay, scoreMode, alertThreshold,
+      }).catch(() => {});   // best-effort: a failed default-save shouldn't block play
+    }
     setMyColor(resolved);
     setHistory([]);
     setMainline([]);
