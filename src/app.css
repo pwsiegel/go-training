@@ -1,4 +1,4 @@
-:root { --sidebar-w: 220px; --drawer-w: 320px; }
+:root { --sidebar-w: 190px; --drawer-w: 320px; }
 .app-shell { display: flex; align-items: flex-start; min-height: 100vh; }
 .app-main { flex: 1 1 auto; min-width: 0; color: var(--text); transition: margin-right 0.2s; }
 body.drawer-open .app-main { margin-right: var(--drawer-w); }
