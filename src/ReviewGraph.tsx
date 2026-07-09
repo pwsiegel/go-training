@@ -84,7 +84,6 @@ export function ReviewGraph({ points, total, cursor, onSeek }: {
         </svg>
         <span className="rg-corner rg-corner-top">{axisMax >= 0 ? 'B' : 'W'}+{Math.abs(axisMax)}</span>
         <span className="rg-corner rg-corner-bot">{axisMin >= 0 ? 'B' : 'W'}+{Math.abs(axisMin)}</span>
-        {zeroInRange && <span className="rg-zero-label" style={{ top: `${(zeroY / H) * 100}%` }}>even</span>}
         {hover != null && hoverLead != null && (
           <div className="rg-tip" style={{ left: `${Math.min(92, Math.max(8, (hover / Math.max(1, total)) * 100))}%` }}>
             Move {hover} · {scoreLabel(hoverLead)}
