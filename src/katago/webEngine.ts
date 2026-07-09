@@ -36,6 +36,34 @@ export const LOCAL_MODEL: AnalysisModel = {
   id: 'local', name: 'kata1-b18c384nbt', runtime: 'Metal (native)', strength: 'strong', kind: 'local', defaultVisits: 1000,
 };
 
+/** Browser net to fall back to when WebGPU is unavailable. b18 on the wasm/CPU
+ * fallback is ~12x slower per eval and can't search within the time budget, so
+ * the small b6 net (which can) is the right choice there. */
+export const FALLBACK_MODEL_ID = 'b6';
+
+let webgpuAvailablePromise: Promise<boolean> | null = null;
+/** Whether a real (non-software) WebGPU adapter is available — the signal for
+ * whether b18 can run on the GPU. Cached; safe to call repeatedly. Mirrors what
+ * the worker's `tf.setBackend('webgpu')` will get, so a null/fallback adapter
+ * here means analysis would land on wasm. */
+export function webgpuAvailable(): Promise<boolean> {
+  if (!webgpuAvailablePromise) {
+    webgpuAvailablePromise = (async () => {
+      try {
+        const gpu = (navigator as unknown as {
+          gpu?: { requestAdapter: () => Promise<{ isFallbackAdapter?: boolean } | null> };
+        }).gpu;
+        if (!gpu) return false;
+        const adapter = await gpu.requestAdapter();
+        return !!adapter && !adapter.isFallbackAdapter;
+      } catch {
+        return false;
+      }
+    })();
+  }
+  return webgpuAvailablePromise;
+}
+
 /** Auto GPU batch size for the running browser engine, from its last on-load
  * forward-pass measurement (a safe middle before any measurement exists). This
  * is the value the worker also picks for a search when batchSize is omitted. */
