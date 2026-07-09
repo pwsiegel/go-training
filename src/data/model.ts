@@ -34,6 +34,18 @@ export type UserDoc = {
   displayName: string;
   email: string;
   role: Role;
+  playDefaults?: PlayDefaults;
+};
+
+/** Last-used settings for the play-vs-KataGo setup screen, seeded as the
+ * defaults for the user's next game. */
+export type PlayDefaults = {
+  colorChoice: Color | 'random';
+  rank: string;
+  temperature: number;
+  moveDelay: number;
+  scoreMode: 'show' | 'hide' | 'alert';
+  alertThreshold: number;
 };
 
 export type Move = { col: number; row: number };
