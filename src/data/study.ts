@@ -15,6 +15,7 @@ import {
   query, where, orderBy,
 } from 'firebase/firestore';
 import { db } from '../firebase';
+import { listCollections, listProblems } from './library';
 import type {
   AttemptDoc, Move, SubmissionDoc, Verdict, VerdictDoc, LibProblem,
 } from './model';
@@ -202,6 +203,50 @@ export async function problemStatuses(studentUid: string): Promise<Map<string, P
     }
   }
   return out;
+}
+
+export type ResumePoint = {
+  collection: string;
+  slug: string;
+  /** The next problem to solve: the first past the furthest attempted one. */
+  next: LibProblem;
+  total: number;
+  /** Most recent attempt time in this collection, for most-recent-first order. */
+  lastAttemptAt: number;
+};
+
+/** Where to pick up in each in-progress collection. "In progress" = at least one
+ * attempt and at least one problem left past the furthest attempted (by board
+ * order, so retrying an early problem never drags the cursor back). A collection
+ * finished through its last problem is omitted. Most-recently-practiced first. */
+export async function resumePoints(studentUid: string): Promise<ResumePoint[]> {
+  const attempts = await allAttempts(studentUid);
+  if (attempts.length === 0) return [];
+
+  const byCollection = new Map<string, { pids: Set<string>; lastAt: number }>();
+  for (const a of attempts) {
+    const g = byCollection.get(a.collection) ?? { pids: new Set<string>(), lastAt: 0 };
+    g.pids.add(a.problemId);
+    g.lastAt = Math.max(g.lastAt, a.createdAt);
+    byCollection.set(a.collection, g);
+  }
+
+  const slugByName = new Map((await listCollections()).map((c) => [c.collection, c.slug]));
+
+  const points: ResumePoint[] = [];
+  for (const [name, g] of byCollection) {
+    const slug = slugByName.get(name);
+    if (!slug) continue;
+    const problems = [...await listProblems(slug)].sort((a, b) => a.source_board_idx - b.source_board_idx);
+    const attempted = problems.filter((p) => g.pids.has(p.id));
+    if (attempted.length === 0) continue;
+    const furthestIdx = attempted[attempted.length - 1].source_board_idx;
+    const next = problems.find((p) => p.source_board_idx > furthestIdx);
+    if (!next) continue;
+    points.push({ collection: name, slug, next, total: problems.length, lastAttemptAt: g.lastAt });
+  }
+  points.sort((a, b) => b.lastAttemptAt - a.lastAttemptAt);
+  return points;
 }
 
 export type StudentData = {
