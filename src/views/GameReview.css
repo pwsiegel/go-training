@@ -142,7 +142,6 @@
   font-size: 0.75rem;
   color: var(--text-muted);
 }
-.gr-hint { color: var(--text-faint); }
 .gr-graph-kata { display: inline-flex; align-items: center; gap: 0.5rem; white-space: nowrap; }
 .gr-graph-empty {
   height: 150px;
@@ -168,12 +167,16 @@
 .gr-analyze-err { color: var(--error); }
 
 .gr-rerun {
-  padding: 0.1rem 0.45rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.1rem 0.4rem;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-soft);
   color: var(--text-muted);
-  font-size: 0.72rem;
+  font-size: 0.95rem;
+  line-height: 1;
   cursor: pointer;
 }
 .gr-rerun:hover { color: var(--text); border-color: var(--text-muted); }
