@@ -19,6 +19,9 @@ type AuthState = {
   loading: boolean;
   signIn: () => Promise<void>;
   signOutUser: () => Promise<void>;
+  // Merge a patch into the in-memory profile so a persisted change (e.g. engine
+  // prefs) is reflected across views this session without re-fetching.
+  updateProfile: (patch: Partial<Profile>) => void;
 };
 
 const Ctx = createContext<AuthState | null>(null);
@@ -51,9 +54,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOutUser = async () => {
     await signOut(auth);
   };
+  const updateProfile = (patch: Partial<Profile>) =>
+    setProfile((p) => (p ? { ...p, ...patch } : p));
 
   return (
-    <Ctx.Provider value={{ user, profile, loading, signIn, signOutUser }}>
+    <Ctx.Provider value={{ user, profile, loading, signIn, signOutUser, updateProfile }}>
       {children}
     </Ctx.Provider>
   );
