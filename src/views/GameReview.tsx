@@ -13,11 +13,11 @@ import {
   addMove, buildTree, depthOf, deserializeVariations, leafOf, movesTo, nodeAtDepth,
   pathIds, pruneSubtree, serializeVariations, variationLines, type GameTree,
 } from '../variations';
-import { analyzePosition, scoreTrajectory, webgpuAvailable, FALLBACK_MODEL_ID, BROWSER_MODELS, LOCAL_MODEL, type WebAnalysis } from '../katago/webEngine';
+import { analyzePosition, scoreTrajectory, BROWSER_MODELS, LOCAL_MODEL, type WebAnalysis } from '../katago/webEngine';
+import { useModelPreference } from '../katago/useModelPreference';
 import { Modal } from '../Modal';
 import { EngineSettings } from '../EngineSettings';
 import { useEngineLease } from '../katago/engineLease';
-import { katagoBackendAvailable } from '../data/katago';
 import { Spinner } from '../Spinner';
 import { ReviewGraph } from '../ReviewGraph';
 import './GameReview.css';
@@ -50,7 +50,7 @@ export function GameReview() {
   const [myUids, setMyUids] = useState<Set<number>>(new Set());
   const [cursor, setCursor] = useState(0);
   const [analyzeOn, setAnalyzeOn] = useState(false);
-  const [modelId, setModelId] = useState(BROWSER_MODELS[0].id);
+  const { models, model, modelId, pickModel } = useModelPreference();
   const [visitsByModel, setVisitsByModel] = useState<Record<string, number>>(
     () => Object.fromEntries([...BROWSER_MODELS, LOCAL_MODEL].map((m) => [m.id, m.defaultVisits])),
   );
@@ -59,7 +59,6 @@ export function GameReview() {
   // on-load forward-pass measurement); a number is a manual override.
   const [batchOverride, setBatchOverride] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [localAvailable, setLocalAvailable] = useState(false);
   const [analysis, setAnalysis] = useState<{ cursor: number; data: WebAnalysis } | null>(null);
   const [analysisErr, setAnalysisErr] = useState('');
   const [partialTop, setPartialTop] = useState<{ cursor: number; x: number; y: number } | null>(null);
@@ -115,34 +114,11 @@ export function GameReview() {
     bodyObs.current = ro;
   }, []);
 
-  // Offer the native-backend model only when it's reachable (dev with `make api`).
-  const models = useMemo(
-    () => (localAvailable ? [...BROWSER_MODELS, LOCAL_MODEL] : BROWSER_MODELS),
-    [localAvailable],
-  );
-  const model = models.find((m) => m.id === modelId) ?? models[0];
   const visits = visitsByModel[model.id] ?? model.defaultVisits;
   // Only one context may drive the browser GPU engine at a time (see engineLease).
   // The native model doesn't touch browser VRAM, so it needs no lease.
   const engineStatus = useEngineLease(analyzeOn && model.kind === 'browser');
   const engineReady = model.kind !== 'browser' || engineStatus === 'active';
-
-  useEffect(() => {
-    let on = true;
-    katagoBackendAvailable().then((ok) => { if (on) setLocalAvailable(ok); });
-    return () => { on = false; };
-  }, []);
-
-  // Without a real WebGPU adapter, b18 falls to wasm (~12x slower, can't search)
-  // — default to the small b6 net instead, unless the user has picked a model.
-  const userPickedModel = useRef(false);
-  useEffect(() => {
-    let on = true;
-    webgpuAvailable().then((ok) => {
-      if (on && !ok && !userPickedModel.current) setModelId(FALLBACK_MODEL_ID);
-    });
-    return () => { on = false; };
-  }, []);
 
   useEffect(() => {
     if (previewGame) return;
@@ -630,7 +606,7 @@ export function GameReview() {
           <EngineSettings
             models={models}
             modelId={modelId}
-            onModelId={(id) => { userPickedModel.current = true; setModelId(id); }}
+            onModelId={pickModel}
             visitsByModel={visitsByModel}
             onVisitsChange={(id, v) => setVisitsByModel((prev) => ({ ...prev, [id]: v }))}
             batchOverride={batchOverride}

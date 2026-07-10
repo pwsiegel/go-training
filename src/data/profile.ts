@@ -4,7 +4,7 @@ import {
   doc, getDoc, setDoc, updateDoc, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import type { PlayDefaults, Role, UserDoc } from './model';
+import type { EnginePrefs, PlayDefaults, Role, UserDoc } from './model';
 
 export type Profile = UserDoc;
 
@@ -37,4 +37,8 @@ export async function setRole(uid: string, role: Role): Promise<void> {
 
 export async function setPlayDefaults(uid: string, playDefaults: PlayDefaults): Promise<void> {
   await updateDoc(doc(db, 'users', uid), { playDefaults });
+}
+
+export async function setEnginePrefs(uid: string, enginePrefs: EnginePrefs): Promise<void> {
+  await updateDoc(doc(db, 'users', uid), { enginePrefs });
 }

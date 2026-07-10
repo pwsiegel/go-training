@@ -35,6 +35,15 @@ export type UserDoc = {
   email: string;
   role: Role;
   playDefaults?: PlayDefaults;
+  enginePrefs?: EnginePrefs;
+};
+
+/** Preferred analysis model, shared across Review and Explore. Tracked per
+ * context because the native GPU backend is only offered in local dev — so the
+ * choice made when it's reachable is remembered separately from the browser one. */
+export type EnginePrefs = {
+  localModelId?: string;    // preferred model when the native backend is reachable
+  browserModelId?: string;  // preferred model when it isn't (browser-only)
 };
 
 /** Last-used settings for the play-vs-KataGo setup screen, seeded as the
