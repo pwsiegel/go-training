@@ -231,8 +231,7 @@ export function PlayView({
     setLetterCounter(0);
     setTool('play');
     setError(null);
-    setRegion(null);
-    setRegionAnchor(null);
+    // Keep any selected AI region — reset clears only the board (clearRegion drops it).
   };
 
   const clearRegion = () => {

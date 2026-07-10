@@ -113,7 +113,7 @@ export function History({ teacherMode = false }: { teacherMode?: boolean }) {
                   onClick={() => setMode('flat')}>View all</button>
               </div>
               {retryHref && (
-                <Link to={retryHref} state={{ backgroundLocation: location }} className="submission-retry-btn">Retry ({retryQueue.length})</Link>
+                <Link to={retryHref} state={{ backgroundLocation: location, nav: navOf(retryQueue) }} className="submission-retry-btn">Retry ({retryQueue.length})</Link>
               )}
             </div>
           )}
