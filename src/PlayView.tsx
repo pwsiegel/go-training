@@ -112,6 +112,8 @@ export function PlayView({
     analyzePosition({
       model,
       stones,
+      previousStones: history.length > 0 ? replayHistory(baseStones, history.slice(0, -1)).stones : undefined,
+      previousPreviousStones: history.length > 1 ? replayHistory(baseStones, history.slice(0, -2)).stones : undefined,
       initialStones: baseStones,
       moves: history,
       toPlay: nextColor,

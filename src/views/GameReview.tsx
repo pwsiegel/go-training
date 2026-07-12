@@ -308,6 +308,8 @@ export function GameReview() {
       analyzePosition({
         model,
         stones: shown.stones,
+        previousStones: cursor > 0 ? replay(lineMoves.slice(0, cursor - 1)).stones : undefined,
+        previousPreviousStones: cursor > 1 ? replay(lineMoves.slice(0, cursor - 2)).stones : undefined,
         moves: lineMoves.slice(0, cursor),
         toPlay,
         positionId: `${id}:${line}:${cursor}:${model.id}`,
