@@ -20,6 +20,7 @@ import { ProfileModal } from './views/Profile';
 import { Play } from './views/Play';
 import { Review } from './views/Review';
 import { GameReview } from './views/GameReview';
+import { ProGames } from './views/ProGames';
 
 function navClass({ isActive }: { isActive: boolean }) {
   return isActive ? 'sidebar-link active' : 'sidebar-link';
@@ -52,6 +53,7 @@ function Sidebar({ teacherMode, canToggle, onToggle }: {
         </div>
         {!teacherMode && <NavLink to="/play" className={navClass}>Play AI</NavLink>}
         <NavLink to="/review" className={navClass}>Review games</NavLink>
+        <NavLink to="/pro-games" className={navClass}>Pro games</NavLink>
       </nav>
       <div className="sidebar-foot">
         {profile?.displayName && (
@@ -123,6 +125,7 @@ export default function App() {
             <Route path="/play" element={<Play />} />
             <Route path="/review" element={<Review teacherMode={teacherMode} />} />
             <Route path="/review/:id" element={<GameReview />} />
+            <Route path="/pro-games" element={<ProGames />} />
             <Route path="/teacher" element={<Navigate to="/submissions" replace />} />
             <Route path="/teacher/submissions" element={<Navigate to="/submissions" replace />} />
             <Route path="/teacher/history" element={<Navigate to="/history" replace />} />

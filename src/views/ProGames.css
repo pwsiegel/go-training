@@ -1,0 +1,163 @@
+.progames {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.progames h1 {
+  margin: 0 0 1rem;
+}
+
+.progames-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.progames-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.progames-field label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.progames-field input {
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-soft);
+  color: var(--text);
+  font: inherit;
+}
+
+.progames-combobox {
+  position: relative;
+  min-width: 15rem;
+  flex: 1 1 15rem;
+}
+
+.progames-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  margin: 0.25rem 0 0;
+  padding: 0.25rem;
+  list-style: none;
+  max-height: 16rem;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px var(--overlay-shadow, rgba(0, 0, 0, 0.15));
+}
+
+.progames-suggestions button {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.progames-suggestions button:hover {
+  background: var(--accent-bg);
+}
+
+.progames-count {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.progames-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.progames-search,
+.progames-clear,
+.progames-more {
+  padding: 0.45rem 0.9rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  font: inherit;
+  cursor: pointer;
+}
+
+.progames-search {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.progames-clear {
+  background: var(--bg-soft);
+  color: var(--text);
+}
+
+.progames-caption {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin: 0 0 0.5rem;
+}
+
+.progames-error {
+  color: var(--error);
+  margin: 0 0 0.75rem;
+}
+
+.progames-loading {
+  display: flex;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.progames-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.progames-table th,
+.progames-table td {
+  padding: 0.45rem 0.6rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.progames-table th {
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+
+.progames-table tbody tr:hover {
+  background: var(--bg-soft);
+}
+
+.progames-date { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.progames-event { color: var(--text-secondary); }
+.progames-moves { text-align: right; font-variant-numeric: tabular-nums; }
+.progames-rank { color: var(--text-muted); font-size: 0.85em; }
+.progames-empty { text-align: center; color: var(--text-muted); padding: 1.5rem; }
+
+.progames-more {
+  display: block;
+  margin: 1rem auto 0;
+  background: var(--bg-soft);
+  color: var(--text);
+}
