@@ -245,6 +245,11 @@ export async function genmoveBrowser(args: {
 type AnalyzeArgs = {
   model: AnalysisModel;
   stones: Stone[];
+  // Boards one and two plies back, so the browser engine can find the ko point
+  // (and prev ladder features). Without them a just-taken ko isn't masked and
+  // the immediate recapture can be suggested. The local backend replays `moves`.
+  previousStones?: Stone[];
+  previousPreviousStones?: Stone[];
   moves: GameMove[];
   toPlay: Color;
   positionId: string;
@@ -351,6 +356,8 @@ async function analyzeBrowser(args: AnalyzeArgs): Promise<WebAnalysis | null> {
       modelUrl,
       backend: 'webgpu',
       board: toBoardState(args.stones),
+      previousBoard: args.previousStones ? toBoardState(args.previousStones) : undefined,
+      previousPreviousBoard: args.previousPreviousStones ? toBoardState(args.previousPreviousStones) : undefined,
       currentPlayer: toPlayer(args.toPlay),
       moveHistory: toEngineMoves(args.moves),
       komi: args.komi ?? 7.5,
