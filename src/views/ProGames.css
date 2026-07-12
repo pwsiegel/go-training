@@ -145,6 +145,10 @@
   font-size: 0.8rem;
 }
 
+.progames-row {
+  cursor: pointer;
+}
+
 .progames-table tbody tr:hover {
   background: var(--bg-soft);
 }

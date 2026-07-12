@@ -17,6 +17,7 @@ export const PAGE_SIZE = 25;
 
 export interface ProGame {
   id: string;
+  sgf: string;
   dateSort: string;
   dateDisplay: string;
   year: number | null;

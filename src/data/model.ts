@@ -101,7 +101,7 @@ export type LinkDoc = {
 
 /** Where a game came from. Locally-played KataGo games are `go-training`;
  * games imported from Fox Weiqi are `fox`. Other sites can be added later. */
-export type GameSource = 'go-training' | 'fox';
+export type GameSource = 'go-training' | 'fox' | 'gogod';
 
 export type GameMove = { color: Color; x: number; y: number };
 

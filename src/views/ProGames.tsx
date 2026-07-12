@@ -1,18 +1,27 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { QueryDocumentSnapshot } from 'firebase/firestore';
 import { Spinner } from '../Spinner';
 import {
   listPlayers, recentGames, searchGames,
   type GameFilter, type ProGame, type ProPlayer,
 } from '../data/proGames';
+import type { GameDoc } from '../data/model';
 import './ProGames.css';
 
 const MAX_SUGGESTIONS = 12;
+
+/** A read-only GameDoc handed to GameReview via router state (its `previewGame`
+ * path), so a pro game opens in the full review UI without living in `games/`. */
+function toGameDoc(g: ProGame): GameDoc {
+  return { id: g.id, ownerUid: '', source: 'gogod', createdAt: Date.parse(g.dateSort) || 0, sgf: g.sgf };
+}
 
 /** Browse the pro-game reference database (GoGoD): the 10 most recent games on
  * load, with search by player (autocomplete) and/or date range. Results are
  * paginated so no query returns an unbounded set. */
 export function ProGames() {
+  const navigate = useNavigate();
   const [players, setPlayers] = useState<ProPlayer[]>([]);
   const [nameInput, setNameInput] = useState('');
   const [from, setFrom] = useState('');
@@ -167,7 +176,12 @@ export function ProGames() {
           </thead>
           <tbody>
             {games.map((g) => (
-              <tr key={g.id}>
+              <tr
+                key={g.id}
+                className="progames-row"
+                onClick={() => navigate(`/review/${encodeURIComponent(g.id)}`,
+                  { state: { game: toGameDoc(g), from: '/pro-games' } })}
+              >
                 <td className="progames-date">{g.dateDisplay || g.year || '—'}</td>
                 <td>{g.black || '—'}{g.blackRank && <span className="progames-rank"> {g.blackRank}</span>}</td>
                 <td>{g.white || '—'}{g.whiteRank && <span className="progames-rank"> {g.whiteRank}</span>}</td>
