@@ -20,6 +20,11 @@
   stroke-width: 1;
 }
 
+.grid-line-edge {
+  stroke-width: 2;
+  stroke-linecap: square;
+}
+
 .star-point {
   fill: #2b1d10;
 }

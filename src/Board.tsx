@@ -28,9 +28,9 @@ type Props = {
    * the board truthfully represents its stones without mouse artifacts.
    * Click handlers are still wired up but no visual hover feedback. */
   displayOnly?: boolean;
-  /** Render 0-indexed column numbers above and row numbers to the left
-   * of the grid, so a viewer can refer to positions unambiguously when
-   * describing what they see. */
+  /** Standard board coordinates on all four edges (OGS convention:
+   * letters A–T skipping I left-to-right, numbers 1–19 bottom-to-top).
+   * On by default; suppressed in `thumbnail` mode. */
   showCoords?: boolean;
   /** Numbered move overlay (solve attempts). Painted on top of the
    * position without adding stones. On an empty intersection the number
@@ -63,7 +63,9 @@ type Props = {
   ghostStone?: { x: number; y: number; color: 'B' | 'W' } | null;
 };
 
-const PADDING = 30;
+const COORD_LETTERS = 'ABCDEFGHJKLMNOPQRST'; // no I, per convention
+
+const PADDING = 38;
 const CELL = 32;
 const SIZE = PADDING * 2 + CELL * (BOARD_SIZE - 1);
 const STONE_R = CELL * 0.47;
@@ -87,7 +89,7 @@ function aiColor(t: number): string {
 
 export function Board({
   stones, onPlay, editable = false, viewport,
-  displayOnly = false, showCoords = false,
+  displayOnly = false, showCoords = true,
   numberedMoves, annotations, onCellClick, aiCandidates, region, regionAnchor,
   thumbnail = false, spinnerAt, ghostStone,
 }: Props) {
@@ -143,37 +145,47 @@ export function Board({
         />
       )}
 
-      {/* Grid lines */}
-      {Array.from({ length: BOARD_SIZE }, (_, i) => (
-        <g key={`grid-${i}`}>
-          <line
-            x1={toPx(i)} y1={toPx(0)}
-            x2={toPx(i)} y2={toPx(BOARD_SIZE - 1)}
-            className="grid-line"
-          />
-          <line
-            x1={toPx(0)} y1={toPx(i)}
-            x2={toPx(BOARD_SIZE - 1)} y2={toPx(i)}
-            className="grid-line"
-          />
-        </g>
-      ))}
+      {/* Grid lines (outer border drawn heavier) */}
+      {Array.from({ length: BOARD_SIZE }, (_, i) => {
+        const edge = i === 0 || i === BOARD_SIZE - 1;
+        return (
+          <g key={`grid-${i}`}>
+            <line
+              x1={toPx(i)} y1={toPx(0)}
+              x2={toPx(i)} y2={toPx(BOARD_SIZE - 1)}
+              className={edge ? 'grid-line grid-line-edge' : 'grid-line'}
+            />
+            <line
+              x1={toPx(0)} y1={toPx(i)}
+              x2={toPx(BOARD_SIZE - 1)} y2={toPx(i)}
+              className={edge ? 'grid-line grid-line-edge' : 'grid-line'}
+            />
+          </g>
+        );
+      })}
 
-      {/* Coordinate labels (0-indexed to match internal col/row) */}
-      {showCoords && Array.from({ length: BOARD_SIZE }, (_, i) => (
+      {/* Coordinate labels, all four edges (letters A–T skip I; numbers
+          1–19 with 1 at the bottom). Internal row 0 is the top row. */}
+      {showCoords && !thumbnail && Array.from({ length: BOARD_SIZE }, (_, i) => (
         <g key={`coord-${i}`} className="coord-label">
-          <text
-            x={toPx(i)} y={PADDING - 12}
-            textAnchor="middle"
-            dominantBaseline="central"
-            fontSize={11}
-          >{i}</text>
-          <text
-            x={PADDING - 12} y={toPx(i)}
-            textAnchor="middle"
-            dominantBaseline="central"
-            fontSize={11}
-          >{i}</text>
+          {[12, SIZE - 12].map((edge) => (
+            <text
+              key={`h-${edge}`}
+              x={toPx(i)} y={edge}
+              textAnchor="middle"
+              dominantBaseline="central"
+              fontSize={10}
+            >{COORD_LETTERS[i]}</text>
+          ))}
+          {[12, SIZE - 12].map((edge) => (
+            <text
+              key={`v-${edge}`}
+              x={edge} y={toPx(i)}
+              textAnchor="middle"
+              dominantBaseline="central"
+              fontSize={10}
+            >{BOARD_SIZE - i}</text>
+          ))}
         </g>
       ))}
 
