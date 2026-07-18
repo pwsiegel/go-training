@@ -98,7 +98,7 @@ export type WebAnalysis = {
   playedEval?: { scoreLead: number; pointsLost: number } | null;
 };
 
-const toPlayer = (c: Color) => (c === 'B' ? 'black' : 'white');
+const toPlayer = (c: Color): 'black' | 'white' => (c === 'B' ? 'black' : 'white');
 
 function toBoardState(stones: Stone[]): BoardState {
   const board: BoardState = Array.from({ length: BOARD_SIZE }, () =>
@@ -196,8 +196,14 @@ export async function scoreTrajectory(args: {
 
 const HUMAN_NET_PATH = 'katago/b18c384nbt-humanv0.bin.gz';
 
+// Profile for the score readout: the strongest the meta-encoder supports.
+// Conditioning shifts the value head too, so reading the score at the play
+// rank makes weak-bot score estimates (and alert-mode gaps) unreliable.
+const SCORE_PROFILE = 'preaz_9d';
+
 /** Play a human-like move: sample the human net's rank-conditioned policy (like
  * the backend /genmove). Excludes pass and the ko point; temperature < 1 sharpens.
+ * The score estimate comes from a second pass conditioned on SCORE_PROFILE.
  * Returns the move (Black-perspective score estimate) or a pass when no legal move. */
 export async function genmoveBrowser(args: {
   stones: Stone[];
@@ -209,17 +215,22 @@ export async function genmoveBrowser(args: {
   komi?: number;
   koPoint?: { x: number; y: number } | null;
 }): Promise<{ move: { x: number; y: number } | null; scoreLead: number }> {
-  const { policy, rootScoreLead } = await getKataGoEngineClient().humanPolicy({
+  const client = getKataGoEngineClient();
+  const query = {
     modelUrl: await storageUrl(HUMAN_NET_PATH),
-    backend: 'webgpu',
+    backend: 'webgpu' as const,
     board: toBoardState(args.stones),
     previousBoard: args.previousStones ? toBoardState(args.previousStones) : undefined,
     currentPlayer: toPlayer(args.toPlay),
     moveHistory: toEngineMoves(args.moves),
     komi: args.komi ?? 7.5,
-    rules: 'chinese',
-    humanSLProfile: args.rank,
-  });
+    rules: 'chinese' as const,
+  };
+  const [{ policy }, scorePass] = await Promise.all([
+    client.humanPolicy({ ...query, humanSLProfile: args.rank }),
+    client.humanPolicy({ ...query, humanSLProfile: SCORE_PROFILE }),
+  ]);
+  const rootScoreLead = scorePass.rootScoreLead;
 
   const koIdx = args.koPoint ? args.koPoint.y * BOARD_SIZE + args.koPoint.x : -1;
   const temp = Math.max(0.05, args.temperature);
