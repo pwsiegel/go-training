@@ -54,7 +54,10 @@ export type PlayDefaults = {
   temperature: number;
   moveDelay: number;
   scoreMode: 'show' | 'hide' | 'alert';
-  alertThreshold: number;
+  alertKind?: 'behind' | 'drop';   // behind = absolute deficit, drop = recent loss
+  alertThreshold: number;          // behind: alert at this deficit
+  dropPoints?: number;             // drop: alert after losing this many points…
+  dropMoves?: number;              // …within this many moves
 };
 
 export type Move = { col: number; row: number };

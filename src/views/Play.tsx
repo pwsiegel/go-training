@@ -19,6 +19,7 @@ type Move = { color: Color; x: number; y: number };
 type Phase = 'setup' | 'playing' | 'ended';
 type ColorChoice = Color | 'random';
 type ScoreMode = 'show' | 'hide' | 'alert';
+type AlertKind = 'behind' | 'drop';
 
 const ERROR_MESSAGES: Record<PlayError, string> = {
   occupied: 'Occupied.',
@@ -59,7 +60,10 @@ export function Play() {
   const [engine, setEngine] = useState<'browser' | 'local'>('browser');
   const [localAvailable, setLocalAvailable] = useState(false);
   const [scoreMode, setScoreMode] = useState<ScoreMode>('show');
+  const [alertKind, setAlertKind] = useState<AlertKind>('behind');
   const [alertThreshold, setAlertThreshold] = useState(5);
+  const [dropPoints, setDropPoints] = useState(5);
+  const [dropMoves, setDropMoves] = useState(10);
   const [moveDelay, setMoveDelay] = useState(1);   // seconds of minimum "think time"
   const [warmed, setWarmed] = useState(humanNetWarmed);
   // Hold the browser-engine lease while a browser game is in progress; only one
@@ -93,6 +97,9 @@ export function Play() {
     setMoveDelay(d.moveDelay);
     setScoreMode(d.scoreMode);
     setAlertThreshold(d.alertThreshold);
+    setAlertKind(d.alertKind ?? 'behind');
+    setDropPoints(d.dropPoints ?? 5);
+    setDropMoves(d.dropMoves ?? 10);
   }, [profile, phase]);
 
   const atLive = viewing === null;
@@ -129,7 +136,14 @@ export function Play() {
   const liveScore = scoreAtMove(history.length);
   const userLead = liveScore === null ? null : (myColor === 'B' ? liveScore : -liveScore);
   const behindBy = userLead === null ? null : -userLead;
-  const alerting = scoreMode === 'alert' && behindBy !== null && behindBy >= alertThreshold;
+  // Points lost from your perspective between `dropMoves` ago and now (null
+  // until an estimate that old exists).
+  const baseline = scoreAtMove(Math.max(0, history.length - dropMoves));
+  const baselineLead = baseline === null ? null : (myColor === 'B' ? baseline : -baseline);
+  const droppedBy = userLead === null || baselineLead === null ? null : baselineLead - userLead;
+  const alerting = scoreMode === 'alert' && (alertKind === 'behind'
+    ? behindBy !== null && behindBy >= alertThreshold
+    : droppedBy !== null && droppedBy >= dropPoints);
   // Reveal the graph the first time the alert fires; keep it up afterwards.
   if (alerting && !alerted) setAlerted(true);
   const showGraph = scoreMode === 'alert' && alerted;
@@ -228,7 +242,7 @@ export function Play() {
       : colorChoice;
     if (user) {
       void setPlayDefaults(user.uid, {
-        colorChoice, rank, temperature, moveDelay, scoreMode, alertThreshold,
+        colorChoice, rank, temperature, moveDelay, scoreMode, alertKind, alertThreshold, dropPoints, dropMoves,
       }).catch(() => {});   // best-effort: a failed default-save shouldn't block play
     }
     setMyColor(resolved);
@@ -399,14 +413,31 @@ export function Play() {
           ))}
         </div>
         {scoreMode === 'alert' && (
-          <span className="play-alert-thresh">
-            Alert when behind by{' '}
-            <input
-              type="number" min={1}
-              value={alertThreshold}
-              onChange={(e) => setAlertThreshold(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
-            />{' '}points.
-          </span>
+          <>
+            <label className="play-alert-thresh">
+              <input type="radio" name="alert-kind" checked={alertKind === 'behind'} onChange={() => setAlertKind('behind')} />
+              Alert when behind by{' '}
+              <input
+                type="number" min={1}
+                value={alertThreshold}
+                onChange={(e) => setAlertThreshold(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+              />{' '}points.
+            </label>
+            <label className="play-alert-thresh">
+              <input type="radio" name="alert-kind" checked={alertKind === 'drop'} onChange={() => setAlertKind('drop')} />
+              Alert when{' '}
+              <input
+                type="number" min={1}
+                value={dropPoints}
+                onChange={(e) => setDropPoints(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+              />{' '}points are lost over the last{' '}
+              <input
+                type="number" min={2}
+                value={dropMoves}
+                onChange={(e) => setDropMoves(Math.max(2, Math.floor(Number(e.target.value) || 2)))}
+              />{' '}moves.
+            </label>
+          </>
         )}
       </div>
     </>
@@ -441,7 +472,11 @@ export function Play() {
     <div className="play-page"><div className="play-view">
       <div className="play-board">
         {alerting && (
-          <div className="play-alert">You're behind by {behindBy!.toFixed(1)} points — rewind on the graph and try a different line.</div>
+          <div className="play-alert">
+            {alertKind === 'behind'
+              ? <>You're behind by {behindBy!.toFixed(1)} points — rewind on the graph and try a different line.</>
+              : <>You've lost {droppedBy!.toFixed(1)} points over the last {dropMoves} moves — rewind on the graph and try a different line.</>}
+          </div>
         )}
         {engineStatus === 'waiting' && (
           <div className="play-blocked">
