@@ -3,13 +3,10 @@ import { Board, type Annotation } from './Board';
 import { Spinner } from './Spinner';
 import { playMove, type PlayError } from './goRules';
 import type { Color, Stone } from './types';
+import { useEngineHub } from './katago/engineHub';
 import './PlayView.css';
 import { type Region } from './data/katago';
-import { analyzePosition, BROWSER_MODELS, LOCAL_MODEL, type WebAnalysis } from './katago/webEngine';
-import { useModelPreference } from './katago/useModelPreference';
-import { Modal } from './Modal';
-import { EngineSettings } from './EngineSettings';
-import { useEngineLease } from './katago/engineLease';
+import { analyzePosition, type WebAnalysis } from './katago/webEngine';
 
 type Tool = 'play' | 'addB' | 'addW' | 'region' | 'number' | 'letter' | 'triangle' | 'square';
 
@@ -71,17 +68,7 @@ export function PlayView({
   const [aiResult, setAiResult] = useState<{ key: string; data?: WebAnalysis; error?: string } | null>(null);
   const [region, setRegion] = useState<Region | null>(null);
   const [regionAnchor, setRegionAnchor] = useState<{ x: number; y: number } | null>(null);
-  const { models, model, modelId, pickModel } = useModelPreference();
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [visitsByModel, setVisitsByModel] = useState<Record<string, number>>(
-    () => Object.fromEntries([...BROWSER_MODELS, LOCAL_MODEL].map((m) => [m.id, m.defaultVisits])),
-  );
-  // GPU dispatch batch: null = Auto (engine sizes to a latency budget), else manual.
-  const [batchOverride, setBatchOverride] = useState<number | null>(null);
-
-  // The browser engine is single-instance across tabs/windows (see engineLease).
-  const engineStatus = useEngineLease(aiOn && model.kind === 'browser');
-  const engineReady = model.kind !== 'browser' || engineStatus === 'active';
+  const { model, visits, batchOverride, engineReady, leaseStatus } = useEngineHub();
 
   const { stones, koPoint } = useMemo(
     () => replayHistory(baseStones, history),
@@ -118,7 +105,7 @@ export function PlayView({
       moves: history,
       toPlay: nextColor,
       positionId: posKey,
-      visits: visitsByModel[model.id] ?? model.defaultVisits,
+      visits,
       batchSize: batchOverride ?? undefined,
       region,
       signal: ctrl.signal,
@@ -134,7 +121,7 @@ export function PlayView({
         });
       });
     return () => { active = false; ctrl.abort(); };
-  }, [aiOn, engineReady, model, posKey, stones, baseStones, history, nextColor, region, visitsByModel, batchOverride]);
+  }, [aiOn, engineReady, model, posKey, stones, baseStones, history, nextColor, region, visits, batchOverride]);
 
   // Use the result only if it's for the current position; else we're still loading.
   const current = aiOn && aiResult?.key === posKey ? aiResult : null;
@@ -266,7 +253,7 @@ export function PlayView({
         </div>
         {aiOn && (
           <div className="play-status">
-            {engineStatus === 'waiting'
+            {leaseStatus === 'waiting'
               ? <span className="play-ai-wait">KataGo AI is running in another tab or window — turn it off there (or close it) to use it here.</span>
               : aiError
                 ? <span className="play-error">{aiError}</span>
@@ -281,27 +268,7 @@ export function PlayView({
           <ToolButton active={aiOn} onClick={() => setAiOn((v) => !v)}>
             AI hints <span className="tool-counter">{aiLoading ? '…' : aiOn ? 'on' : 'off'}</span>
           </ToolButton>
-          <button
-            type="button"
-            className="play-tool play-gear"
-            onClick={() => setSettingsOpen(true)}
-            aria-label="Analysis settings"
-            title="Analysis settings"
-          >
-            ⚙
-          </button>
         </div>
-        <Modal open={settingsOpen} onClose={() => setSettingsOpen(false)} title="Analysis settings">
-          <EngineSettings
-            models={models}
-            modelId={modelId}
-            onModelId={pickModel}
-            visitsByModel={visitsByModel}
-            onVisitsChange={(id, v) => setVisitsByModel((prev) => ({ ...prev, [id]: v }))}
-            batchOverride={batchOverride}
-            onBatchOverride={setBatchOverride}
-          />
-        </Modal>
         <ToolButton active={tool === 'region'} onClick={() => { setAiOn(true); setTool('region'); }}>
           Region <span className="tool-counter">{region ? 'set' : 'off'}</span>
         </ToolButton>

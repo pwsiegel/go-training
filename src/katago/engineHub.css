@@ -1,0 +1,52 @@
+.eh-button {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  font: inherit;
+  font-size: 0.82rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-align: left;
+}
+
+.eh-button:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.eh-button-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eh-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.eh-dot-ready { background: #2da44e; }
+.eh-dot-warming { background: #d4a72c; animation: eh-pulse 1.2s ease-in-out infinite; }
+.eh-dot-down { background: #cf222e; }
+.eh-dot-blocked { background: var(--text-muted); }
+
+@keyframes eh-pulse {
+  50% { opacity: 0.35; }
+}
+
+.eh-status-line {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0 0 0.75rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}

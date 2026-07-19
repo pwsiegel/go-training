@@ -280,6 +280,9 @@ type AnalyzeArgs = {
   // Restrict the search to a rectangle (tsumego explore hints). Both engines
   // support it — the browser via region-of-interest, the local via allow-moves.
   region?: { colMin: number; colMax: number; rowMin: number; rowMax: number } | null;
+  // Run in the worker's background analysis group: preempted by interactive
+  // analyses instead of superseding them (pre-warms, prefetches).
+  background?: boolean;
 };
 
 function emptyPointsIn(
@@ -362,7 +365,7 @@ async function analyzeBrowser(args: AnalyzeArgs): Promise<WebAnalysis | null> {
   const modelUrl = await netUrl(args.model);
   try {
     const a = await client.analyze({
-      analysisGroup: 'interactive',
+      analysisGroup: args.background ? 'background' : 'interactive',
       positionId: args.positionId,
       modelUrl,
       backend: 'webgpu',

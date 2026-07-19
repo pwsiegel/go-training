@@ -21,6 +21,7 @@ import { Play } from './views/Play';
 import { Review } from './views/Review';
 import { GameReview } from './views/GameReview';
 import { ProGames } from './views/ProGames';
+import { EngineHubProvider, EngineStatusButton } from './katago/engineHub';
 
 function navClass({ isActive }: { isActive: boolean }) {
   return isActive ? 'sidebar-link active' : 'sidebar-link';
@@ -56,6 +57,7 @@ function Sidebar({ teacherMode, canToggle, onToggle }: {
         <NavLink to="/pro-games" className={navClass}>Pro games</NavLink>
       </nav>
       <div className="sidebar-foot">
+        <EngineStatusButton />
         {profile?.displayName && (
           <button type="button" className="sidebar-name" onClick={() => setShowProfile(true)}>
             {profile.displayName}
@@ -111,6 +113,7 @@ export default function App() {
 
   return (
     <BatchProvider>
+      <EngineHubProvider>
       <div className="app-shell">
         <Sidebar teacherMode={teacherMode} canToggle={canTeach || profile.role === 'teacher'} onToggle={toggleMode} />
         <main className="app-main">
@@ -139,6 +142,7 @@ export default function App() {
         </main>
         {showBatch && <BatchDrawer />}
       </div>
+      </EngineHubProvider>
     </BatchProvider>
   );
 }

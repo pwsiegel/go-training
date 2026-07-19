@@ -1,0 +1,199 @@
+// Site-wide AI engine state: one selected analysis model, one settings modal,
+// one lease, one warm-up. The provider holds the browser-engine lease for the
+// whole tab lifetime (so the loaded net survives navigation instead of being
+// disposed per-view) and warms the selected model as soon as the site loads.
+// Views consume model/visits/batch and readiness from here; the sidebar shows
+// the model name + health and opens the shared settings modal.
+
+import {
+  createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode,
+} from 'react';
+import {
+  BROWSER_MODELS, LOCAL_MODEL, FALLBACK_MODEL_ID, webgpuAvailable, analyzePosition,
+  type AnalysisModel,
+} from './webEngine';
+import { katagoBackendAvailable } from '../data/katago';
+import { setEnginePrefs } from '../data/profile';
+import { useAuth } from '../auth';
+import { useEngineLease, type LeaseStatus } from './engineLease';
+import { Modal } from '../Modal';
+import { EngineSettings } from '../EngineSettings';
+import './engineHub.css';
+
+const DEFAULT_MODEL_ID = BROWSER_MODELS[0].id;   // b18
+const isBrowserModel = (id?: string) => !!id && BROWSER_MODELS.some((m) => m.id === id);
+
+export type EngineHealth = 'warming' | 'ready' | 'down' | 'blocked';
+
+type Hub = {
+  models: AnalysisModel[];
+  model: AnalysisModel;
+  modelId: string;
+  pickModel: (id: string) => void;
+  visitsByModel: Record<string, number>;
+  setVisits: (id: string, v: number) => void;
+  visits: number;                  // selected model's playouts
+  batchOverride: number | null;
+  setBatchOverride: (b: number | null) => void;
+  health: EngineHealth;
+  leaseStatus: LeaseStatus;
+  engineReady: boolean;            // safe to issue analysis calls now
+  openSettings: () => void;
+};
+
+const HubContext = createContext<Hub | null>(null);
+
+export function useEngineHub(): Hub {
+  const hub = useContext(HubContext);
+  if (!hub) throw new Error('useEngineHub outside EngineHubProvider');
+  return hub;
+}
+
+export function EngineHubProvider({ children }: { children: ReactNode }) {
+  const { user, profile, updateProfile } = useAuth();
+  const [localAvailable, setLocalAvailable] = useState<boolean | null>(null);
+  const [webgpuOk, setWebgpuOk] = useState<boolean | null>(null);
+  const [modelId, setModelId] = useState(DEFAULT_MODEL_ID);
+  const userPicked = useRef(false);
+  const [visitsByModel, setVisitsByModel] = useState<Record<string, number>>(
+    () => Object.fromEntries([...BROWSER_MODELS, LOCAL_MODEL].map((m) => [m.id, m.defaultVisits])),
+  );
+  const [batchOverride, setBatchOverride] = useState<number | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [warmState, setWarmState] = useState<'pending' | 'ok' | 'failed'>('pending');
+
+  const localOk = localAvailable === true;
+  const models = useMemo(
+    () => (localOk ? [...BROWSER_MODELS, LOCAL_MODEL] : BROWSER_MODELS),
+    [localOk],
+  );
+  const model = models.find((m) => m.id === modelId) ?? models[0];
+
+  useEffect(() => {
+    let on = true;
+    katagoBackendAvailable().then((ok) => { if (on) setLocalAvailable(ok); });
+    webgpuAvailable().then((ok) => { if (on) setWebgpuOk(ok); });
+    return () => { on = false; };
+  }, []);
+
+  // Seed from the saved preference once backend availability is known. b18 on
+  // the wasm fallback can't search, so without a real WebGPU adapter a browser
+  // choice drops to the small b6 net.
+  useEffect(() => {
+    if (localAvailable === null || userPicked.current) return;
+    const saved = localOk ? profile?.enginePrefs?.localModelId : profile?.enginePrefs?.browserModelId;
+    const valid = saved === 'local' ? localOk : isBrowserModel(saved);
+    let desired = valid ? saved! : DEFAULT_MODEL_ID;
+    if (desired !== 'local' && webgpuOk === false) desired = FALLBACK_MODEL_ID;
+    setModelId(desired);
+  }, [localAvailable, localOk, webgpuOk, profile]);
+
+  const pickModel = (id: string) => {
+    userPicked.current = true;
+    setModelId(id);
+    if (!user) return;
+    const next = localOk
+      ? { ...profile?.enginePrefs, localModelId: id }
+      : { ...profile?.enginePrefs, browserModelId: id };
+    updateProfile({ enginePrefs: next });
+    void setEnginePrefs(user.uid, next).catch(() => {});   // best-effort persist
+  };
+
+  // Hold the lease for the tab's lifetime: the worker keeps the net resident
+  // across navigation, and a second tab shows "blocked" instead of stealing it.
+  const leaseStatus = useEngineLease(model.kind === 'browser');
+
+  // Warm the selected model as soon as it's usable: a 1-visit background query
+  // forces the net fetch + GPU warm-up so the first real analysis is instant.
+  const warmedFor = useRef('');
+  useEffect(() => {
+    let on = true;
+    if (model.kind === 'local') {
+      if (warmedFor.current === model.id) return;
+      warmedFor.current = model.id;
+      setWarmState('pending');
+      katagoBackendAvailable().then((ok) => { if (on) setWarmState(ok ? 'ok' : 'failed'); });
+      return () => { on = false; };
+    }
+    if (leaseStatus !== 'active' || warmedFor.current === model.id) return;
+    warmedFor.current = model.id;
+    setWarmState('pending');
+    analyzePosition({
+      model, stones: [], moves: [], toPlay: 'B',
+      positionId: `hub:warm:${model.id}`, visits: 1, background: true,
+    })
+      .then(() => { if (on) setWarmState('ok'); })
+      .catch(() => { if (on) { setWarmState('failed'); warmedFor.current = ''; } });
+    return () => { on = false; };
+  }, [model, leaseStatus]);
+
+  const health: EngineHealth =
+    model.kind === 'browser' && leaseStatus === 'waiting' ? 'blocked'
+      : warmState === 'pending' ? 'warming'
+        : warmState === 'failed' ? 'down'
+          : 'ready';
+  const engineReady = model.kind !== 'browser' || leaseStatus === 'active';
+
+  const hub: Hub = {
+    models,
+    model,
+    modelId: model.id,
+    pickModel,
+    visitsByModel,
+    setVisits: (id, v) => setVisitsByModel((prev) => ({ ...prev, [id]: v })),
+    visits: visitsByModel[model.id] ?? model.defaultVisits,
+    batchOverride,
+    setBatchOverride,
+    health,
+    leaseStatus,
+    engineReady,
+    openSettings: () => setSettingsOpen(true),
+  };
+
+  return (
+    <HubContext.Provider value={hub}>
+      {children}
+      <Modal open={settingsOpen} onClose={() => setSettingsOpen(false)} title="AI engine">
+        <p className="eh-status-line">
+          <HealthDot health={health} /> {model.name} — {HEALTH_LABEL[health]}
+        </p>
+        <EngineSettings
+          models={models}
+          modelId={model.id}
+          onModelId={pickModel}
+          visitsByModel={visitsByModel}
+          onVisitsChange={hub.setVisits}
+          batchOverride={batchOverride}
+          onBatchOverride={setBatchOverride}
+        />
+      </Modal>
+    </HubContext.Provider>
+  );
+}
+
+const HEALTH_LABEL: Record<EngineHealth, string> = {
+  ready: 'ready',
+  warming: 'warming up…',
+  down: 'down',
+  blocked: 'in use by another tab',
+};
+
+function HealthDot({ health }: { health: EngineHealth }) {
+  return <span className={`eh-dot eh-dot-${health}`} aria-hidden="true" />;
+}
+
+/** Sidebar button: current model + health; opens the shared settings modal. */
+export function EngineStatusButton() {
+  const { model, health, openSettings } = useEngineHub();
+  return (
+    <button
+      type="button"
+      className="eh-button"
+      onClick={openSettings}
+      title={`AI engine: ${model.name} — ${HEALTH_LABEL[health]}`}
+    >
+      <HealthDot health={health} />
+      <span className="eh-button-name">{model.name}</span>
+    </button>
+  );
+}
