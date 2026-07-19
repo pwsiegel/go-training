@@ -21,6 +21,7 @@ import { Play } from './views/Play';
 import { Review } from './views/Review';
 import { GameReview } from './views/GameReview';
 import { ProGames } from './views/ProGames';
+import { AiTsumegoList, AiTsumegoSolve } from './views/AiTsumego';
 
 function navClass({ isActive }: { isActive: boolean }) {
   return isActive ? 'sidebar-link active' : 'sidebar-link';
@@ -48,6 +49,7 @@ function Sidebar({ teacherMode, canToggle, onToggle }: {
           {teacherMode
             ? <span className="sidebar-group-label">Solve tsumego</span>
             : <NavLink to="/library" className={navClass}>Solve tsumego</NavLink>}
+          {!teacherMode && <NavLink to="/ai-tsumego" className={subNavClass}>AI tsumego</NavLink>}
           <NavLink to="/submissions" end className={subNavClass}>Submissions</NavLink>
           <NavLink to="/history" className={subNavClass}>History</NavLink>
         </div>
@@ -119,6 +121,8 @@ export default function App() {
             <Route path="/library" element={<Library />} />
             <Route path="/library/:slug" element={<CollectionView />} />
             <Route path="/solve/:slug/:id" element={<Solve />} />
+            <Route path="/ai-tsumego" element={<AiTsumegoList />} />
+            <Route path="/ai-tsumego/:id" element={<AiTsumegoSolve />} />
             <Route path="/submissions" element={<Submissions teacherMode={teacherMode} />} />
             <Route path="/submissions/:id" element={<SubmissionDetail />} />
             <Route path="/history" element={<History teacherMode={teacherMode} />} />
