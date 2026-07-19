@@ -91,6 +91,9 @@ export type WebAnalysis = {
   rootWinrate: number;      // 0..1, Black
   rootScoreLead: number;    // points, Black perspective
   rootVisits: number;
+  // Per-point predicted ownership under best play, Black perspective (+1 =
+  // Black owns), row-major from the top-left. Browser models only.
+  rootOwnership?: number[];
   policyTop: { x: number; y: number } | null;   // net's raw top move (pre-search)
   moves: WebCandidate[];    // best-first
   // Eval of a specifically-requested move (the game's next move), even when the
@@ -126,6 +129,7 @@ function toWeb(a: KataGoAnalysisPayload): WebAnalysis {
     rootWinrate: a.rootWinRate,
     rootScoreLead: a.rootScoreLead,
     rootVisits: a.rootVisits,
+    rootOwnership: Array.from(a.ownership),
     policyTop: policyTopMove(a.policy),
     moves: a.moves.slice(0, 8).map((m) => ({
       x: m.x, y: m.y, winrate: m.winRate, scoreLead: m.scoreLead,

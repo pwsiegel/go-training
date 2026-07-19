@@ -9,6 +9,10 @@ import { listAiProblems, difficultyLabel, type AiProblem } from '../data/aiTsume
 import './AiTsumego.css';
 
 const REPLY_VISITS = 50;
+// Judged from the engine-turn analysis (the claim's falsifier to move): the
+// group's mean ownership beyond this, in either direction, settles the claim.
+const JUDGE_DECIDED = 0.8;
+const JUDGE_MIN_PLIES = 2;   // let the user actually play before judging
 
 const other = (c: Color): Color => (c === 'B' ? 'W' : 'B');
 
@@ -64,6 +68,8 @@ export function AiTsumegoSolve() {
   const [thinking, setThinking] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [engineErr, setEngineErr] = useState(false);
+  // Set once the claim is settled: proved (claim demonstrated) or failed.
+  const [outcome, setOutcome] = useState<{ result: 'proved' | 'failed'; pointsLost: number | null } | null>(null);
   const [replyTick, setReplyTick] = useState(0);   // bumps to re-attempt a canceled reply
   const retries = useRef(0);
   const seq = useRef(0);        // invalidates in-flight replies on undo/reset
@@ -108,6 +114,11 @@ export function AiTsumegoSolve() {
     return { annotations: marks, aliveMarks: aliveCount };
   }, [target, cur, snaps]);
   const captured = !!target && aliveMarks === 0;
+  useEffect(() => {
+    if (captured && playing && outcome === null) {
+      setOutcome({ result: claim === 'dead' ? 'proved' : 'failed', pointsLost: null });
+    }
+  }, [captured, playing, outcome, claim]);
 
   // Moves played so far, reconstructed from the snapshots (each ply adds
   // exactly one stone) — the engine wants them for its history planes.
@@ -124,7 +135,7 @@ export function AiTsumegoSolve() {
   // Engine turn: whenever the position rests on the engine's move (including
   // the very first move when the puzzle's mover is the engine's side).
   useEffect(() => {
-    if (!playing || engineColor === null || currentMover !== engineColor) return;
+    if (!playing || outcome !== null || engineColor === null || currentMover !== engineColor) return;
     if (inFlight.current || !cur) return;
     if (!engineReady) return;
     const mySeq = ++seq.current;
@@ -171,6 +182,25 @@ export function AiTsumegoSolve() {
           return;
         }
         retries.current = 0;
+        // Judge: this analysis has the claim's falsifier to move, so a decisive
+        // group ownership here settles the claim in either direction. Score is
+        // tracked so an inefficient proof can be reported.
+        if (target && analysis.rootOwnership && snaps.length - 1 >= JUDGE_MIN_PLIES) {
+          const pts = target.chain.filter(([x, y]) =>
+            cur.stones.some((s) => s.x === x && s.y === y && s.color === target.color));
+          if (pts.length > 0) {
+            const own = pts.reduce((a, [x, y]) => a + analysis.rootOwnership![y * 19 + x], 0) / pts.length;
+            const ownerHolds = target.color === 'B' ? own > JUDGE_DECIDED : own < -JUDGE_DECIDED;
+            const ownerLost = target.color === 'B' ? own < -JUDGE_DECIDED : own > JUDGE_DECIDED;
+            const settled = ownerHolds ? 'alive' : ownerLost ? 'dead' : null;
+            if (settled) {
+              const sign = myColor === 'B' ? 1 : -1;
+              const pointsLost = Math.max(0, sign * ((problem?.gen.score_black ?? analysis.rootScoreLead) - analysis.rootScoreLead));
+              setOutcome({ result: settled === claim ? 'proved' : 'failed', pointsLost: Math.round(pointsLost * 10) / 10 });
+              return;
+            }
+          }
+        }
         const best = analysis.moves[0];
         if (!best) return;   // engine sees nothing to play
         const r = playMove(cur.stones, engineColor, best.x, best.y, cur.koPoint);
@@ -185,10 +215,10 @@ export function AiTsumegoSolve() {
         }
       }
     })();
-  }, [playing, engineColor, currentMover, cur, snaps, model, engineReady, id, replyTick, problem]);
+  }, [playing, outcome, engineColor, currentMover, cur, snaps, model, engineReady, id, replyTick, problem]);
 
   const handleCellClick = (x: number, y: number) => {
-    if (!myTurn || !cur || myColor === null) return;
+    if (!myTurn || outcome !== null || !cur || myColor === null) return;
     const r = playMove(cur.stones, myColor, x, y, cur.koPoint);
     if (!r.ok) return;
     setSnaps((s) => [...s, { stones: r.stones, koPoint: r.koPoint }]);
@@ -203,6 +233,7 @@ export function AiTsumegoSolve() {
   const undo = () => {
     if (myColor === null) return;
     cancelEngine();
+    setOutcome(null);
     // Back to the most recent earlier position where it was your turn.
     setSnaps((s) => {
       let p = s.length - 2;
@@ -215,6 +246,7 @@ export function AiTsumegoSolve() {
   const reset = () => {
     cancelEngine();
     setClaim(null);
+    setOutcome(null);
     setRevealed(false);
     if (problem) setSnaps([{ stones: toStones(problem), koPoint: null }]);
   };
@@ -241,7 +273,19 @@ export function AiTsumegoSolve() {
             </div>
           </div>
         )}
-        {playing && (
+        {playing && outcome && (
+          <div className={outcome.result === 'proved' ? 'aits-prompt aits-verdict-ok' : 'aits-prompt aits-verdict-bad'}>
+            {outcome.result === 'proved'
+              ? <>Proved — the marked group is <strong>{claim}</strong>.
+                {outcome.pointsLost !== null && outcome.pointsLost > 2.5
+                  ? <> But the proof cost ~{outcome.pointsLost} points vs best play.</>
+                  : outcome.pointsLost !== null ? <> Cleanly, too.</> : null}</>
+              : <>Failed — {captured && claim === 'alive'
+                  ? 'the marked group has been captured.'
+                  : `the group's fate no longer matches your claim (${claim}).`} Undo to retry, or Reveal.</>}
+          </div>
+        )}
+        {playing && !outcome && (
           <div className="aits-prompt aits-prompt-play">
             You claimed the group is <strong>{claim}</strong> — prove it playing{' '}
             <strong>{myColor === 'B' ? 'Black' : 'White'}</strong>

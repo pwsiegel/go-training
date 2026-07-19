@@ -161,3 +161,13 @@
   color: var(--text-muted);
   font-style: italic;
 }
+
+.aits-verdict-ok {
+  border-color: #2da44e;
+  background: color-mix(in srgb, #2da44e 12%, transparent);
+}
+
+.aits-verdict-bad {
+  border-color: var(--error);
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+}
