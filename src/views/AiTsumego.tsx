@@ -56,7 +56,7 @@ export function AiTsumegoSolve() {
   const { id } = useParams<{ id: string }>();
   const [problem, setProblem] = useState<AiProblem | null>(null);
   const [missing, setMissing] = useState(false);
-  const { model, engineReady, leaseStatus } = useEngineHub();
+  const { model, engineReady, leaseStatus, health } = useEngineHub();
 
   const [claim, setClaim] = useState<'alive' | 'dead' | null>(null);
   // Snapshots per ply; the last entry is the current position.
@@ -133,16 +133,36 @@ export function AiTsumegoSolve() {
     setEngineErr(false);
     (async () => {
       try {
-        const analysis = await analyzePosition({
-          model,
-          stones: cur.stones,
-          previousStones: snaps[snaps.length - 2]?.stones,
-          previousPreviousStones: snaps[snaps.length - 3]?.stones,
-          moves: movesFrom(snaps),
-          toPlay: engineColor,
-          positionId: `${id}:${snaps.length}:${mySeq}`,
-          visits: REPLY_VISITS,
-        });
+        // Surface a wedged reply instead of spinning forever; the console gets
+        // the state we know.
+        const watchdog = setTimeout(() => {
+          if (mySeq !== seq.current) return;
+          console.error('[ai-tsumego] engine reply timed out', {
+            model: model.id, engineReady, snaps: snaps.length,
+          });
+          seq.current += 1;
+          inFlight.current = false;
+          setThinking(false);
+          setEngineErr(true);
+        }, 45_000);
+        let analysis;
+        try {
+          analysis = await analyzePosition({
+            model,
+            stones: cur.stones,
+            previousStones: snaps[snaps.length - 2]?.stones,
+            previousPreviousStones: snaps[snaps.length - 3]?.stones,
+            // The puzzle's start position, for the native backend (which
+            // rebuilds from initialStones + moves; browser models use stones).
+            initialStones: problem ? toStones(problem) : [],
+            moves: movesFrom(snaps),
+            toPlay: engineColor,
+            positionId: `${id}:${snaps.length}:${mySeq}`,
+            visits: REPLY_VISITS,
+          });
+        } finally {
+          clearTimeout(watchdog);
+        }
         if (mySeq !== seq.current) return;
         if (!analysis) {
           // Superseded/canceled inside the worker — retry rather than stall.
@@ -165,7 +185,7 @@ export function AiTsumegoSolve() {
         }
       }
     })();
-  }, [playing, engineColor, currentMover, cur, snaps, model, engineReady, id, replyTick]);
+  }, [playing, engineColor, currentMover, cur, snaps, model, engineReady, id, replyTick, problem]);
 
   const handleCellClick = (x: number, y: number) => {
     if (!myTurn || !cur || myColor === null) return;
@@ -230,8 +250,10 @@ export function AiTsumegoSolve() {
             {engineErr && <span className="aits-captured"> Engine error — Undo or Reset.</span>}
             {!engineErr && currentMover === engineColor && (
               <em className="aits-thinking">
-                {' '}{thinking || engineReady ? 'AI is thinking…'
-                  : 'Waiting for the AI engine — is another tab using it?'}
+                {' '}{health === 'warming' ? 'Loading the analysis net…'
+                  : thinking ? 'AI is thinking…'
+                    : engineReady ? 'AI is thinking…'
+                      : 'Waiting for the AI engine — is another tab using it?'}
               </em>
             )}
           </div>
