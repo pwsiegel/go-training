@@ -70,6 +70,8 @@ export function AiTsumegoSolve() {
   const [engineErr, setEngineErr] = useState(false);
   // Set once the claim is settled: proved (claim demonstrated) or failed.
   const [outcome, setOutcome] = useState<{ result: 'proved' | 'failed'; pointsLost: number | null } | null>(null);
+  // TEMP debug: last judge measurement, rendered in the banner.
+  const [judgeDebug, setJudgeDebug] = useState<string>('');
   const [replyTick, setReplyTick] = useState(0);   // bumps to re-attempt a canceled reply
   const retries = useRef(0);
   const seq = useRef(0);        // invalidates in-flight replies on undo/reset
@@ -185,16 +187,13 @@ export function AiTsumegoSolve() {
         // Judge: this analysis has the claim's falsifier to move, so a decisive
         // group ownership here settles the claim in either direction. Score is
         // tracked so an inefficient proof can be reported.
-        if (!analysis.rootOwnership) console.debug('[ai-tsumego] judge skipped: no ownership', { model: model.id });
+        if (!analysis.rootOwnership) setJudgeDebug(`no ownership from model=${model.id}`);
         if (target && analysis.rootOwnership && snaps.length - 1 >= JUDGE_MIN_PLIES) {
           const pts = target.chain.filter(([x, y]) =>
             cur.stones.some((s) => s.x === x && s.y === y && s.color === target.color));
           if (pts.length > 0) {
             const own = pts.reduce((a, [x, y]) => a + analysis.rootOwnership![y * 19 + x], 0) / pts.length;
-            console.debug('[ai-tsumego] judge', {
-              own: Math.round(own * 100) / 100, pts: pts.length,
-              target: target.color, claim, plies: snaps.length - 1, model: model.id,
-            });
+            setJudgeDebug(`own=${(Math.round(own * 100) / 100).toFixed(2)} pts=${pts.length} target=${target.color} claim=${claim} plies=${snaps.length - 1} model=${model.id}`);
             const ownerHolds = target.color === 'B' ? own > JUDGE_DECIDED : own < -JUDGE_DECIDED;
             const ownerLost = target.color === 'B' ? own < -JUDGE_DECIDED : own > JUDGE_DECIDED;
             const settled = ownerHolds ? 'alive' : ownerLost ? 'dead' : null;
@@ -297,6 +296,7 @@ export function AiTsumegoSolve() {
             {claim === 'alive' ? ' (defend the marked group).' : ' (kill the marked group).'}
             {captured && <span className="aits-captured"> The marked group has been captured.</span>}
             {engineErr && <span className="aits-captured"> Engine error — Undo or Reset.</span>}
+            {judgeDebug && <span className="aits-provenance"> [{judgeDebug}]</span>}
             {!engineErr && currentMover === engineColor && (
               <em className="aits-thinking">
                 {' '}{health === 'warming' ? 'Loading the analysis net…'
