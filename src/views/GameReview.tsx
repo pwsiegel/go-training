@@ -464,7 +464,7 @@ export function GameReview() {
   const enterAt = (leafId: number, depth: number) => { setLine(leafId); setCursor(depth); };
 
   const mark = cursor > 0 ? lineMoves[cursor - 1] : null;
-  const annotations: Annotation[] = mark ? [{ kind: 'triangle', x: mark.x, y: mark.y }] : [];
+  const annotations: Annotation[] = mark ? [{ kind: 'circle', x: mark.x, y: mark.y }] : [];
   const cursorScore = scoreBefore(points, cursor);
   const info = sgfInfo(game.sgf);
   const outcome = gameOutcome(game, myUids);

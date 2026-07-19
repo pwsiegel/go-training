@@ -4,12 +4,13 @@ import type { NumberedMove } from './numberedMoves';
 import './Board.css';
 
 /** Free-form annotation a caller can drop on the board: a text label
- * (e.g. "1", "A") or a shape (triangle, square). Renders on top of the
- * position without modifying stones, on either empty or occupied
- * intersections. */
+ * (e.g. "1", "A") or a shape (triangle, square, circle). Renders on top
+ * of the position without modifying stones, on either empty or occupied
+ * intersections. Convention: circle = last move played; triangle = a
+ * marked/target group. */
 export type Annotation =
   | { kind: 'label'; x: number; y: number; text: string }
-  | { kind: 'triangle' | 'square'; x: number; y: number };
+  | { kind: 'triangle' | 'square' | 'circle'; x: number; y: number };
 
 type Props = {
   stones: Stone[];
@@ -303,6 +304,19 @@ export function Board({
               <rect
                 x={toPx(a.x) - r} y={toPx(a.y) - r}
                 width={r * 2} height={r * 2}
+                className={strokeClass}
+                fill="none"
+                strokeWidth={2}
+              />
+            </g>
+          );
+        }
+        if (a.kind === 'circle') {
+          return (
+            <g key={`anno-${i}`} style={{ pointerEvents: 'none' }}>
+              <circle
+                cx={toPx(a.x)} cy={toPx(a.y)}
+                r={CELL * 0.3}
                 className={strokeClass}
                 fill="none"
                 strokeWidth={2}

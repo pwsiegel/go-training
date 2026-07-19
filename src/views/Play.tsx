@@ -130,7 +130,7 @@ export function Play() {
   const thinking = opponentTurn && !offline;
   const myTurn = phase === 'playing' && atLive && liveNextColor === myColor;
   const last = viewMoves.length ? viewMoves[viewMoves.length - 1] : null;
-  const annotations: Annotation[] = last ? [{ kind: 'triangle', x: last.x, y: last.y }] : [];
+  const annotations: Annotation[] = last ? [{ kind: 'circle', x: last.x, y: last.y }] : [];
 
   // Score from your perspective at the live position (positive = you're ahead).
   const liveScore = scoreAtMove(history.length);
