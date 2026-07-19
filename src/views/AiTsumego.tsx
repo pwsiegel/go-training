@@ -185,11 +185,16 @@ export function AiTsumegoSolve() {
         // Judge: this analysis has the claim's falsifier to move, so a decisive
         // group ownership here settles the claim in either direction. Score is
         // tracked so an inefficient proof can be reported.
+        if (!analysis.rootOwnership) console.debug('[ai-tsumego] judge skipped: no ownership', { model: model.id });
         if (target && analysis.rootOwnership && snaps.length - 1 >= JUDGE_MIN_PLIES) {
           const pts = target.chain.filter(([x, y]) =>
             cur.stones.some((s) => s.x === x && s.y === y && s.color === target.color));
           if (pts.length > 0) {
             const own = pts.reduce((a, [x, y]) => a + analysis.rootOwnership![y * 19 + x], 0) / pts.length;
+            console.debug('[ai-tsumego] judge', {
+              own: Math.round(own * 100) / 100, pts: pts.length,
+              target: target.color, claim, plies: snaps.length - 1, model: model.id,
+            });
             const ownerHolds = target.color === 'B' ? own > JUDGE_DECIDED : own < -JUDGE_DECIDED;
             const ownerLost = target.color === 'B' ? own < -JUDGE_DECIDED : own > JUDGE_DECIDED;
             const settled = ownerHolds ? 'alive' : ownerLost ? 'dead' : null;
