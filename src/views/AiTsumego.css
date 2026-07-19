@@ -1,0 +1,163 @@
+.aits-page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.aits-sub {
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+}
+
+.aits-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.aits-card {
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem;
+  background: var(--bg-raised, var(--bg));
+  text-decoration: none;
+  color: var(--text);
+}
+
+.aits-card:hover {
+  border-color: var(--accent);
+}
+
+.aits-card-meta {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.aits-card-num {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.aits-card-diff {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.aits-solve {
+  display: flex;
+  gap: 1.25rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.aits-board {
+  flex: 1 1 480px;
+  min-width: 320px;
+  max-width: 640px;
+}
+
+.aits-prompt {
+  margin-bottom: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-raised, var(--bg));
+}
+
+.aits-claim {
+  display: inline-flex;
+  gap: 0.5rem;
+  margin-left: 0.75rem;
+}
+
+.aits-claim button {
+  padding: 0.3rem 1rem;
+  font: inherit;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+.aits-claim button:hover {
+  background: var(--accent-hover);
+}
+
+.aits-captured {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.aits-blocked {
+  margin-bottom: 0.5rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+}
+
+.aits-status {
+  margin-top: 0.4rem;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.aits-error {
+  color: var(--error);
+}
+
+.aits-tools {
+  flex: 0 0 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.aits-tool {
+  display: block;
+  padding: 0.45rem 0.7rem;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-raised, var(--bg));
+  color: var(--text);
+  cursor: pointer;
+}
+
+.aits-tool:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.aits-tool:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.aits-reveal {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.7rem;
+  font-size: 0.88rem;
+}
+
+.aits-reveal p {
+  margin: 0.35rem 0;
+}
+
+.aits-provenance {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.aits-thinking {
+  color: var(--text-muted);
+  font-style: italic;
+}
