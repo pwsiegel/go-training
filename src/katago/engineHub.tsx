@@ -136,8 +136,10 @@ export function EngineHubProvider({ children }: { children: ReactNode }) {
   // The worker's own account of its resident model outranks our bookkeeping:
   // it also covers nets other surfaces load (e.g. Play's human net).
   const worker: KataGoModelStatus = useSyncExternalStore(subscribeModelStatus, getModelStatus, getModelStatus);
+  // Blocked only when the SELECTED model needs the browser engine and can't
+  // have it; a native selection stays green while another tab uses the GPU.
   const health: EngineHealth =
-    (model.kind === 'browser' && leaseStatus === 'waiting') || heldElsewhere ? 'blocked'
+    model.kind === 'browser' && (leaseStatus === 'waiting' || heldElsewhere) ? 'blocked'
       : worker.status === 'loading' ? 'warming'
         : worker.status === 'error' ? 'down'
           : worker.status === 'ready' ? 'ready'
@@ -170,6 +172,9 @@ export function EngineHubProvider({ children }: { children: ReactNode }) {
       <Modal open={settingsOpen} onClose={() => setSettingsOpen(false)} title="AI engine">
         <p className="eh-status-line">
           <HealthDot health={health} /> {loadedModelName} — {HEALTH_LABEL[health]}
+          {health !== 'blocked' && heldElsewhere && (
+            <span className="eh-status-note"> · browser engine in use by another tab</span>
+          )}
         </p>
         <EngineSettings
           models={models}
