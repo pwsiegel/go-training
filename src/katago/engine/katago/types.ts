@@ -200,10 +200,18 @@ export type KataGoWorkerRequest =
   | KataGoEvalRequest
   | KataGoEvalBatchRequest
   | KataGoHumanPolicyRequest;
+export type KataGoModelStatusEvent = {
+  type: 'katago:model_status';
+  status: 'loading' | 'ready' | 'error';
+  modelName?: string;
+  error?: string;
+};
+
 export type KataGoWorkerResponse =
   | KataGoInitResponse
   | KataGoAnalyzeUpdate
   | KataGoAnalyzeResponse
   | KataGoEvalResponse
   | KataGoEvalBatchResponse
-  | KataGoHumanPolicyResponse;
+  | KataGoHumanPolicyResponse
+  | KataGoModelStatusEvent;

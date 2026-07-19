@@ -6,13 +6,17 @@
 // the model name + health and opens the shared settings modal.
 
 import {
-  createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode,
+  createContext, useContext, useEffect, useMemo, useRef, useState,
+  useSyncExternalStore, type ReactNode,
 } from 'react';
 import {
   BROWSER_MODELS, LOCAL_MODEL, FALLBACK_MODEL_ID, webgpuAvailable, analyzePosition,
   type AnalysisModel,
 } from './webEngine';
 import { katagoBackendAvailable } from '../data/katago';
+import {
+  getModelStatus, subscribeModelStatus, type KataGoModelStatus,
+} from './engine/katago/client';
 import { setEnginePrefs } from '../data/profile';
 import { useAuth } from '../auth';
 import { useEngineLease, type LeaseStatus } from './engineLease';
@@ -28,6 +32,7 @@ export type EngineHealth = 'warming' | 'ready' | 'down' | 'blocked';
 type Hub = {
   models: AnalysisModel[];
   model: AnalysisModel;
+  loadedModelName: string;         // the net actually resident in the worker
   modelId: string;
   pickModel: (id: string) => void;
   visitsByModel: Record<string, number>;
@@ -127,16 +132,24 @@ export function EngineHubProvider({ children }: { children: ReactNode }) {
     return () => { on = false; };
   }, [model, leaseStatus]);
 
+  // The worker's own account of its resident model outranks our bookkeeping:
+  // it also covers nets other surfaces load (e.g. Play's human net).
+  const worker: KataGoModelStatus = useSyncExternalStore(subscribeModelStatus, getModelStatus, getModelStatus);
   const health: EngineHealth =
     model.kind === 'browser' && leaseStatus === 'waiting' ? 'blocked'
-      : warmState === 'pending' ? 'warming'
-        : warmState === 'failed' ? 'down'
-          : 'ready';
+      : worker.status === 'loading' ? 'warming'
+        : worker.status === 'error' ? 'down'
+          : worker.status === 'ready' ? 'ready'
+            : warmState === 'pending' ? 'warming'
+              : warmState === 'failed' ? 'down'
+                : 'ready';
+  const loadedModelName = worker.modelName ?? model.name;
   const engineReady = model.kind !== 'browser' || leaseStatus === 'active';
 
   const hub: Hub = {
     models,
     model,
+    loadedModelName,
     modelId: model.id,
     pickModel,
     visitsByModel,
@@ -155,7 +168,7 @@ export function EngineHubProvider({ children }: { children: ReactNode }) {
       {children}
       <Modal open={settingsOpen} onClose={() => setSettingsOpen(false)} title="AI engine">
         <p className="eh-status-line">
-          <HealthDot health={health} /> {model.name} — {HEALTH_LABEL[health]}
+          <HealthDot health={health} /> {loadedModelName} — {HEALTH_LABEL[health]}
         </p>
         <EngineSettings
           models={models}
@@ -184,16 +197,16 @@ function HealthDot({ health }: { health: EngineHealth }) {
 
 /** Sidebar button: current model + health; opens the shared settings modal. */
 export function EngineStatusButton() {
-  const { model, health, openSettings } = useEngineHub();
+  const { loadedModelName, health, openSettings } = useEngineHub();
   return (
     <button
       type="button"
       className="eh-button"
       onClick={openSettings}
-      title={`AI engine: ${model.name} — ${HEALTH_LABEL[health]}`}
+      title={`AI engine: ${loadedModelName} — ${HEALTH_LABEL[health]}`}
     >
       <HealthDot health={health} />
-      <span className="eh-button-name">{model.name}</span>
+      <span className="eh-button-name">{loadedModelName}</span>
     </button>
   );
 }

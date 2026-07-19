@@ -57,6 +57,10 @@ class KataGoEngineClient {
 
     this.worker.onmessage = (ev: MessageEvent<KataGoWorkerResponse>) => {
       const msg = ev.data;
+      if (msg.type === 'katago:model_status') {
+        setModelStatus({ status: msg.status, modelName: msg.modelName ?? null, error: msg.error ?? null });
+        return;
+      }
       if (msg.type === 'katago:init_result') {
         const pendingInit = this.pendingInit;
         if (!pendingInit) return;
@@ -429,7 +433,33 @@ export function getChosenBatchSize(): number | null {
 
 /** Terminate the engine worker and drop the singleton, releasing its WebGPU
  * device. The next getKataGoEngineClient() lazily spawns a fresh worker. */
+/** Live state of the worker's (single) resident model — which net is loaded,
+ * loading, or failed. Survives client disposal (drops back to idle). */
+export type KataGoModelStatus = {
+  status: 'idle' | 'loading' | 'ready' | 'error';
+  modelName: string | null;
+  error: string | null;
+};
+
+let modelStatus: KataGoModelStatus = { status: 'idle', modelName: null, error: null };
+const modelStatusListeners = new Set<() => void>();
+
+function setModelStatus(next: KataGoModelStatus): void {
+  modelStatus = next;
+  for (const l of modelStatusListeners) l();
+}
+
+export function getModelStatus(): KataGoModelStatus {
+  return modelStatus;
+}
+
+export function subscribeModelStatus(cb: () => void): () => void {
+  modelStatusListeners.add(cb);
+  return () => { modelStatusListeners.delete(cb); };
+}
+
 export function disposeKataGoEngineClient(): void {
+  setModelStatus({ status: 'idle', modelName: null, error: null });
   singleton?.dispose();
   singleton = null;
 }

@@ -454,11 +454,36 @@ async function switchToFallbackBackendForRequest(
   }
 }
 
+// Human-readable net name from a (Firebase Storage) model URL, for status
+// events before the file is parsed: ".../o/katago%2Fkata1-b18.bin.gz?token=…".
+function modelNameFromUrl(modelUrl: string): string {
+  try {
+    const path = decodeURIComponent(new URL(modelUrl).pathname);
+    return path.split('/').pop()!.replace(/\.bin\.gz$/, '');
+  } catch {
+    return 'model';
+  }
+}
+
 async function ensureModel(modelUrl: string, backend?: KataGoBackendPreference): Promise<void> {
+  try {
+    await ensureModelInner(modelUrl, backend);
+  } catch (err) {
+    post({
+      type: 'katago:model_status', status: 'error',
+      modelName: modelNameFromUrl(modelUrl),
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
+}
+
+async function ensureModelInner(modelUrl: string, backend?: KataGoBackendPreference): Promise<void> {
   const requestedBackend = normalizeKataGoBackendPreference(backend);
   await ensureBackend(requestedBackend);
   if (model && loadedModelUrl === modelUrl) return;
 
+  post({ type: 'katago:model_status', status: 'loading', modelName: modelNameFromUrl(modelUrl) });
   const res = await fetch(modelUrl);
   if (!res.ok) throw new Error(`Failed to fetch model: ${res.status} ${res.statusText}`);
   const buf = new Uint8Array(await res.arrayBuffer());
@@ -470,6 +495,7 @@ async function ensureModel(modelUrl: string, backend?: KataGoBackendPreference):
     try {
       installModel(await createWarmedModel(parsed), parsed, modelUrl);
       if (model) enginePerf = await measureEnginePerf(model);
+      post({ type: 'katago:model_status', status: 'ready', modelName: loadedModelName ?? parsed.modelName });
       return;
     } catch (err) {
       const fallbackBackend = getKataGoWarmupFallbackBackend({
