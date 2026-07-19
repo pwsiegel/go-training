@@ -23,6 +23,8 @@ export type Candidate = {
 export type Analysis = {
   moves: Candidate[];
   root: { winrate: number; score_lead: number; visits: number; current_player: Color };
+  // Black-perspective ownership, row-major from the top-left (see backend).
+  ownership?: number[] | null;
 };
 
 export type Region = { colMin: number; colMax: number; rowMin: number; rowMax: number };
