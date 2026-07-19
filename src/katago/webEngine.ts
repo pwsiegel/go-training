@@ -410,6 +410,7 @@ function mapBackend(a: BackendAnalysis, toPlay: Color): WebAnalysis {
     rootWinrate: a.root.winrate,
     rootScoreLead: a.root.score_lead,
     rootVisits: a.root.visits,
+    rootOwnership: a.ownership ?? undefined,
     policyTop,
     moves: a.moves
       .filter((m) => m.x != null && m.y != null)
