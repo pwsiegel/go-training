@@ -19,7 +19,7 @@ import {
 } from './engine/katago/client';
 import { setEnginePrefs } from '../data/profile';
 import { useAuth } from '../auth';
-import { useEngineLease, type LeaseStatus } from './engineLease';
+import { useEngineLease, useBrowserEngineHeldElsewhere, type LeaseStatus } from './engineLease';
 import { Modal } from '../Modal';
 import { EngineSettings } from '../EngineSettings';
 import './engineHub.css';
@@ -107,6 +107,7 @@ export function EngineHubProvider({ children }: { children: ReactNode }) {
   // Hold the lease for the tab's lifetime: the worker keeps the net resident
   // across navigation, and a second tab shows "blocked" instead of stealing it.
   const leaseStatus = useEngineLease(model.kind === 'browser');
+  const heldElsewhere = useBrowserEngineHeldElsewhere();
 
   // Warm the selected model as soon as it's usable: a 1-visit background query
   // forces the net fetch + GPU warm-up so the first real analysis is instant.
@@ -136,7 +137,7 @@ export function EngineHubProvider({ children }: { children: ReactNode }) {
   // it also covers nets other surfaces load (e.g. Play's human net).
   const worker: KataGoModelStatus = useSyncExternalStore(subscribeModelStatus, getModelStatus, getModelStatus);
   const health: EngineHealth =
-    model.kind === 'browser' && leaseStatus === 'waiting' ? 'blocked'
+    (model.kind === 'browser' && leaseStatus === 'waiting') || heldElsewhere ? 'blocked'
       : worker.status === 'loading' ? 'warming'
         : worker.status === 'error' ? 'down'
           : worker.status === 'ready' ? 'ready'

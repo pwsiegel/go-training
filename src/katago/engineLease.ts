@@ -12,7 +12,7 @@
 // releases Web Locks automatically on close/crash — the reason to prefer them
 // over a hand-rolled heartbeat).
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useSyncExternalStore } from 'react';
 import { disposeKataGoEngineClient } from './engine/katago/client';
 
@@ -71,6 +71,32 @@ export function releaseEngine() {
 
 function subscribe(cb: () => void) { listeners.add(cb); return () => { listeners.delete(cb); }; }
 function snapshot() { return status; }
+
+/** Whether some OTHER context currently holds the browser-engine lock — a
+ * non-acquiring probe via navigator.locks.query(), polled (there is no event
+ * API). True even when this tab isn't requesting the lock itself (e.g. its
+ * selected analysis model is the native backend). */
+export function useBrowserEngineHeldElsewhere(): boolean {
+  const ours = useSyncExternalStore(subscribe, snapshot, snapshot);
+  const [heldElsewhere, setHeldElsewhere] = useState(false);
+  useEffect(() => {
+    if (!locksSupported || typeof navigator.locks.query !== 'function') return;
+    let on = true;
+    const probe = async () => {
+      try {
+        const state = await navigator.locks.query();
+        const held = (state.held ?? []).some((l) => l.name === LOCK_NAME);
+        if (on) setHeldElsewhere(held && status !== 'active');
+      } catch { /* probe is best-effort */ }
+    };
+    void probe();
+    const timer = setInterval(probe, 4000);
+    const onVis = () => { void probe(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { on = false; clearInterval(timer); document.removeEventListener('visibilitychange', onVis); };
+  }, [ours]);
+  return heldElsewhere && ours !== 'active';
+}
 
 /** Hold the browser-engine lease while `want` is true; returns the live status.
  * Consumers should gate their engine calls on `status === 'active'`. */
