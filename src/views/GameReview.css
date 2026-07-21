@@ -379,3 +379,10 @@
 .gr-mv-preview-del:hover { color: var(--error); }
 
 .gr-gear.active { color: var(--accent); border-color: var(--accent); }
+
+.gr-visits {
+  align-self: center;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}

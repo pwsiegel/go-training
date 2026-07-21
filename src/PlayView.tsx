@@ -290,6 +290,11 @@ export function PlayView({
               {ponder ? '⏸' : '▶'}
             </button>
           )}
+          {aiOn && current?.data && (
+            <span className="play-visits" title="Playouts behind the current analysis">
+              {current.data.rootVisits.toLocaleString()}
+            </span>
+          )}
         </div>
         <ToolButton active={tool === 'region'} onClick={() => { setAiOn(true); setTool('region'); }}>
           Region <span className="tool-counter">{region ? 'set' : 'off'}</span>

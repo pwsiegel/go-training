@@ -112,3 +112,10 @@
     height: 1px;
   }
 }
+
+.play-visits {
+  align-self: center;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}

@@ -603,6 +603,11 @@ export function GameReview() {
             {ponder ? '⏸' : '▶'}
           </button>
         )}
+        {analyzeOn && analysis && analysis.cursor === cursor && (
+          <span className="gr-visits" title="Playouts behind the current analysis">
+            {analysis.data.rootVisits.toLocaleString()}
+          </span>
+        )}
       </div>
 
       <div className={`gr-body${stacked ? ' gr-body--stacked' : ''}`} ref={bodyRef}>
