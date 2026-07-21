@@ -377,3 +377,5 @@
 }
 
 .gr-mv-preview-del:hover { color: var(--error); }
+
+.gr-gear.active { color: var(--accent); border-color: var(--accent); }

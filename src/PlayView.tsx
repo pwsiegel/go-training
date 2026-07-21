@@ -69,6 +69,10 @@ export function PlayView({
   const [region, setRegion] = useState<Region | null>(null);
   const [regionAnchor, setRegionAnchor] = useState<{ x: number; y: number } | null>(null);
   const { model, visits, batchOverride, engineReady, leaseStatus } = useEngineHub();
+  // Pondering: while on, re-analyze the current position with doubling visit
+  // budgets (browser models continue the same search tree). Reset per position.
+  const [ponder, setPonder] = useState(false);
+  const [ponderBoost, setPonderBoost] = useState(0);
 
   const { stones, koPoint } = useMemo(
     () => replayHistory(baseStones, history),
@@ -92,6 +96,9 @@ export function PlayView({
     return `${model.id}|${nextColor}|${r}|${b}|${h}`;
   }, [baseStones, history, region, nextColor, model.id]);
 
+  useEffect(() => { setPonderBoost(0); }, [posKey, visits]);
+  const effVisits = visits * (1 << Math.min(ponderBoost, 8));
+
   useEffect(() => {
     if (!aiOn || !engineReady) return;
     const ctrl = new AbortController();
@@ -105,12 +112,16 @@ export function PlayView({
       moves: history,
       toPlay: nextColor,
       positionId: posKey,
-      visits,
+      visits: effVisits,
       batchSize: batchOverride ?? undefined,
       region,
       signal: ctrl.signal,
     })
-      .then((a) => { if (active && a) setAiResult({ key: posKey, data: a }); })
+      .then((a) => {
+        if (!active || !a) return;
+        setAiResult({ key: posKey, data: a });
+        if (ponder && ponderBoost < 8) setPonderBoost(ponderBoost + 1);
+      })
       .catch((e) => {
         if (!active || ctrl.signal.aborted) return;
         setAiResult({
@@ -121,7 +132,7 @@ export function PlayView({
         });
       });
     return () => { active = false; ctrl.abort(); };
-  }, [aiOn, engineReady, model, posKey, stones, baseStones, history, nextColor, region, visits, batchOverride]);
+  }, [aiOn, engineReady, model, posKey, stones, baseStones, history, nextColor, region, effVisits, ponder, ponderBoost, batchOverride]);
 
   // Use the result only if it's for the current position; else we're still loading.
   const current = aiOn && aiResult?.key === posKey ? aiResult : null;
@@ -268,6 +279,17 @@ export function PlayView({
           <ToolButton active={aiOn} onClick={() => setAiOn((v) => !v)}>
             AI hints <span className="tool-counter">{aiLoading ? '…' : aiOn ? 'on' : 'off'}</span>
           </ToolButton>
+          {aiOn && (
+            <button
+              type="button"
+              className="play-tool play-gear"
+              onClick={() => setPonder((v) => !v)}
+              title={ponder ? 'Pause — stop deepening this position' : 'Keep analyzing — deepen this position for more accuracy'}
+              aria-pressed={ponder}
+            >
+              {ponder ? '⏸' : '▶'}
+            </button>
+          )}
         </div>
         <ToolButton active={tool === 'region'} onClick={() => { setAiOn(true); setTool('region'); }}>
           Region <span className="tool-counter">{region ? 'set' : 'off'}</span>
