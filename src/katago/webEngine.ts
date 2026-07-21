@@ -121,16 +121,30 @@ function policyTopMove(policy: ArrayLike<number>): { x: number; y: number } | nu
   return best >= 0 && bestVal >= 0 ? { x: best % BOARD_SIZE, y: Math.floor(best / BOARD_SIZE) } : null;
 }
 
-function toWeb(a: KataGoAnalysisPayload): WebAnalysis {
+// Points behind the best-SCORED candidate (mover's perspective): a common loss
+// baseline across engines, so the best move is 0.0 and losses are non-negative.
+// Raw engine pointsLost is relative to the order-0 move, whose score can lag
+// mid-search (the negative-"better than best" display artifact).
+function normalizeLosses(moves: WebCandidate[], toPlay: Color): WebCandidate[] {
+  if (!moves.length) return moves;
+  const side = (s: number) => (toPlay === 'B' ? s : -s);
+  const best = Math.max(...moves.map((m) => side(m.scoreLead)));
+  return moves.map((m) => ({ ...m, pointsLost: Math.max(0, best - side(m.scoreLead)) }));
+}
+
+function toWeb(a: KataGoAnalysisPayload, toPlay: Color): WebAnalysis {
   return {
     rootWinrate: a.rootWinRate,
     rootScoreLead: a.rootScoreLead,
     rootVisits: a.rootVisits,
     policyTop: policyTopMove(a.policy),
-    moves: a.moves.slice(0, 8).map((m) => ({
-      x: m.x, y: m.y, winrate: m.winRate, scoreLead: m.scoreLead,
-      visits: m.visits, pointsLost: m.pointsLost, order: m.order,
-    })),
+    moves: normalizeLosses(
+      a.moves.slice(0, 8).map((m) => ({
+        x: m.x, y: m.y, winrate: m.winRate, scoreLead: m.scoreLead,
+        visits: m.visits, pointsLost: m.pointsLost, order: m.order,
+      })),
+      toPlay,
+    ),
   };
 }
 
@@ -396,9 +410,9 @@ async function analyzeBrowser(args: AnalyzeArgs): Promise<WebAnalysis | null> {
         ? { xMin: args.region.colMin, xMax: args.region.colMax, yMin: args.region.rowMin, yMax: args.region.rowMax }
         : null,
       reportDuringSearchEveryMs: args.onProgress ? 120 : undefined,
-      onProgress: args.onProgress ? (p) => args.onProgress!(toWeb(p)) : undefined,
+      onProgress: args.onProgress ? (p) => args.onProgress!(toWeb(p, args.toPlay)) : undefined,
     });
-    return toWeb(a);
+    return toWeb(a, args.toPlay);
   } catch (err) {
     if (isKataGoCanceledError(err)) return null;
     throw err;
@@ -406,9 +420,9 @@ async function analyzeBrowser(args: AnalyzeArgs): Promise<WebAnalysis | null> {
 }
 
 export function mapBackend(a: BackendAnalysis, toPlay: Color): WebAnalysis {
-  // pointsLost = how far behind the best move, in the side-to-move's score.
+  // Same loss baseline as toWeb: points behind the best-scored candidate.
   const sideValue = (lead: number) => (toPlay === 'B' ? lead : -lead);
-  const best = a.moves.length ? sideValue(a.moves[0].score_lead) : 0;
+  const best = a.moves.length ? Math.max(...a.moves.map((m) => sideValue(m.score_lead))) : 0;
   // policyTop = the highest-prior legal candidate (the net's raw pick).
   let policyTop: { x: number; y: number } | null = null;
   let bestPrior = -Infinity;
