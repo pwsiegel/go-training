@@ -139,7 +139,7 @@ function toWeb(a: KataGoAnalysisPayload, toPlay: Color): WebAnalysis {
     rootVisits: a.rootVisits,
     policyTop: policyTopMove(a.policy),
     moves: normalizeLosses(
-      a.moves.slice(0, 8).map((m) => ({
+      a.moves.slice(0, 15).map((m) => ({
         x: m.x, y: m.y, winrate: m.winRate, scoreLead: m.scoreLead,
         visits: m.visits, pointsLost: m.pointsLost, order: m.order,
       })),
@@ -405,7 +405,7 @@ async function analyzeBrowser(args: AnalyzeArgs): Promise<WebAnalysis | null> {
       rules: 'chinese',
       visits: args.visits,
       batchSize: args.batchSize,
-      topK: 8,
+      topK: 15,
       regionOfInterest: args.region
         ? { xMin: args.region.colMin, xMax: args.region.colMax, yMin: args.region.rowMin, yMax: args.region.rowMax }
         : null,
@@ -436,7 +436,7 @@ export function mapBackend(a: BackendAnalysis, toPlay: Color): WebAnalysis {
     policyTop,
     moves: a.moves
       .filter((m) => m.x != null && m.y != null)
-      .slice(0, 8)
+      .slice(0, 15)
       .map((m) => ({
         x: m.x as number, y: m.y as number,
         winrate: m.winrate, scoreLead: m.score_lead, visits: m.visits,
