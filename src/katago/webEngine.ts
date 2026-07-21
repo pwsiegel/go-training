@@ -253,7 +253,7 @@ export async function genmoveBrowser(args: {
   return { move: { x: chosen % BOARD_SIZE, y: Math.floor(chosen / BOARD_SIZE) }, scoreLead: rootScoreLead };
 }
 
-type AnalyzeArgs = {
+export type AnalyzeArgs = {
   model: AnalysisModel;
   stones: Stone[];
   // Boards one and two plies back, so the browser engine can find the ko point
@@ -264,6 +264,10 @@ type AnalyzeArgs = {
   moves: GameMove[];
   toPlay: Color;
   positionId: string;
+  // The previous position's id when navigating one ply forward — lets the
+  // worker re-root its existing search tree into the child instead of starting
+  // over (browser only; requires reuseTree).
+  parentPositionId?: string;
   visits: number;
   komi?: number;
   // GPU dispatch batch (browser only). Omit for auto — the engine sizes it to a
@@ -313,7 +317,7 @@ export async function analyzePosition(args: AnalyzeArgs): Promise<WebAnalysis | 
   return { ...analysis, playedEval: await evalPlayedMove(args, analysis) };
 }
 
-async function evalPlayedMove(args: AnalyzeArgs, analysis: WebAnalysis): Promise<WebAnalysis['playedEval']> {
+export async function evalPlayedMove(args: AnalyzeArgs, analysis: WebAnalysis): Promise<WebAnalysis['playedEval']> {
   const nm = args.evalNext!.move;
   const cand = analysis.moves.find((m) => m.x === nm.x && m.y === nm.y);
   if (cand) return { scoreLead: cand.scoreLead, pointsLost: cand.pointsLost };
@@ -375,6 +379,7 @@ async function analyzeBrowser(args: AnalyzeArgs): Promise<WebAnalysis | null> {
       maxTimeMs: args.maxTimeMs,
       reuseTree: args.reuseTree,
       positionId: args.positionId,
+      parentPositionId: args.parentPositionId,
       modelUrl,
       backend: 'webgpu',
       board: toBoardState(args.stones),
