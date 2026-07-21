@@ -5,6 +5,7 @@ import { Spinner } from '../Spinner';
 import { ProblemCard } from '../ProblemCard';
 import { toStones } from '../stones';
 import { getSubmission, ackSubmission, type SubmissionView } from '../data/study';
+import { getStuckSet } from '../data/stuck';
 import { findProblem, listCollections } from '../data/library';
 import type { LibProblem } from '../data/model';
 import '../Collection.css';
@@ -17,6 +18,7 @@ export function SubmissionDetail() {
   const location = useLocation();
   const [view, setView] = useState<SubmissionView | null>(null);
   const [problems, setProblems] = useState<Record<string, LibProblem | null>>({});
+  const [stuckSet, setStuckSet] = useState<Set<string>>(new Set());
   const [slugByCollection, setSlugByCollection] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -39,6 +41,11 @@ export function SubmissionDetail() {
   }, [id]);
 
   useEffect(refresh, [refresh]);
+  // Badge problems currently in the student's stuck set (own view: my set;
+  // teacher view: the submission's student is readable via the same doc).
+  useEffect(() => {
+    if (view) getStuckSet(view.submission.studentUid).then(setStuckSet).catch(() => {});
+  }, [view]);
 
   if (view === null) return <div className="picker"><Spinner /></div>;
 
@@ -80,6 +87,7 @@ export function SubmissionDetail() {
               collection={problem?.collection}
               number={problem ? problem.source_board_idx + 1 : undefined}
               verdict={verdict?.verdict ?? null}
+              stuck={stuckSet.has(attempt.problemId)}
             />
           );
           return (

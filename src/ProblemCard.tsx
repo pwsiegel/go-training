@@ -39,6 +39,8 @@ export type ProblemCardProps = {
   verdict?: Verdict | 'pending' | null;
   /** Show the "↻ retried" marker. */
   retried?: boolean;
+  /** Show the "⚑ stuck" marker (problem is in the student's stuck set). */
+  stuck?: boolean;
   /** Render the verdict bar. Off where interactive controls replace it (grading). */
   bar?: boolean;
   /** Extra classes for external composition (e.g. a "dirty" highlight). */
@@ -49,7 +51,7 @@ export type ProblemCardProps = {
  * attempts, review. Pure display; interactions (links, remove ×, grading
  * buttons) are composed externally, and the size is set by the parent grid. */
 export function ProblemCard({
-  stones, moves, collection, number, verdict, retried, bar = true, className,
+  stones, moves, collection, number, verdict, retried, stuck, bar = true, className,
 }: ProblemCardProps) {
   const overlay = moves && moves.length ? computeNumberedOverlay(moves) : null;
   const pts = (moves ?? []).map((m) => ({ x: m.x, y: m.y, color: 'B' as const }));
@@ -61,10 +63,11 @@ export function ProblemCard({
       <div className="problem-card-board">
         <Board stones={stones} numberedMoves={overlay?.boardNumbers} viewport={viewport} displayOnly />
       </div>
-      {(number !== undefined || retried) && (
+      {(number !== undefined || retried || stuck) && (
         <div className="problem-card-footer">
           {number !== undefined && <span className="problem-card-num">#{number}</span>}
           {retried && <span className="problem-card-retried">↻ retried</span>}
+          {stuck && <span className="problem-card-stuck">⚑ stuck</span>}
         </div>
       )}
       {bar && verdict && <div className={`problem-card-bar v-${verdict}`}>{MARK[verdict]}</div>}

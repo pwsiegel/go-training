@@ -7,6 +7,7 @@ import { FilterChips } from '../FilterChips';
 import { toStones } from '../stones';
 import { loadStudentData, loadTeacherReview, type SubmissionItem, type SubmissionView } from '../data/study';
 import { listStudents, listTeachers } from '../data/links';
+import { getStuckSet } from '../data/stuck';
 import { problemIndex, type ProblemIndex } from '../data/library';
 import type { AttemptDoc, UserDoc } from '../data/model';
 import '../Submissions.css';
@@ -25,6 +26,7 @@ export function History({ teacherMode = false }: { teacherMode?: boolean }) {
   const [latestAttemptAt, setLatestAttemptAt] = useState<Map<string, number>>(new Map());
   const [index, setIndex] = useState<ProblemIndex | null>(null);
   const [people, setPeople] = useState<UserDoc[]>([]); // teachers (player) or students (teacher)
+  const [stuckSet, setStuckSet] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<'grouped' | 'flat'>('grouped');
   const [page, setPage] = useState(0);
@@ -43,6 +45,7 @@ export function History({ teacherMode = false }: { teacherMode?: boolean }) {
     } else {
       loadStudentData(uid).then((d) => { setSubs(d.submissions); setLatestAttemptAt(d.latestAttemptAt); });
       listTeachers(uid).then(setPeople);
+      getStuckSet(uid).then(setStuckSet).catch(() => {});
     }
   }, [uid, teacherMode]);
   useEffect(() => { problemIndex().then(setIndex); }, []);
@@ -75,9 +78,12 @@ export function History({ teacherMode = false }: { teacherMode?: boolean }) {
       const prev = latest.get(it.attempt.problemId);
       if (!prev || it.attempt.createdAt > prev.attempt.createdAt) latest.set(it.attempt.problemId, it);
     }
+    // Stuck problems are deliberately parked — they don't nag from the queue.
     return [...latest.values()].filter((it) =>
-      it.verdict!.verdict !== 'correct' && (latestAttemptAt.get(it.attempt.problemId) ?? 0) <= it.attempt.createdAt);
-  }, [subs, teacherMode, latestAttemptAt]);
+      it.verdict!.verdict !== 'correct'
+      && (latestAttemptAt.get(it.attempt.problemId) ?? 0) <= it.attempt.createdAt
+      && !stuckSet.has(it.attempt.problemId));
+  }, [subs, teacherMode, latestAttemptAt, stuckSet]);
 
   const toggle = (key: string) =>
     setSelected((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
@@ -128,7 +134,7 @@ export function History({ teacherMode = false }: { teacherMode?: boolean }) {
                     <ul className="problem-card-grid">
                       {items.map((it) => (
                         <ReviewTile key={it.attempt.id} item={it} index={index} nav={nav}
-                          retried={isRetried(it)} href={solveHref(it.attempt)} />
+                          retried={isRetried(it)} stuck={stuckSet.has(it.attempt.problemId)} href={solveHref(it.attempt)} />
                       ))}
                     </ul>
                   );
@@ -151,7 +157,7 @@ export function History({ teacherMode = false }: { teacherMode?: boolean }) {
                         <ul className="problem-card-grid">
                           {items.map((it) => (
                             <ReviewTile key={it.attempt.id} item={it} index={index} nav={nav}
-                              retried={isRetried(it)} href={solveHref(it.attempt)} />
+                              retried={isRetried(it)} stuck={stuckSet.has(it.attempt.problemId)} href={solveHref(it.attempt)} />
                           ))}
                         </ul>
                       </section>
@@ -173,10 +179,10 @@ export function History({ teacherMode = false }: { teacherMode?: boolean }) {
 }
 
 function ReviewTile({
-  item, index, retried, href, nav,
+  item, index, retried, stuck = false, href, nav,
 }: {
   item: SubmissionItem; index: ProblemIndex | null;
-  retried: boolean; href: string | null; nav: { slug: string; id: string }[];
+  retried: boolean; stuck?: boolean; href: string | null; nav: { slug: string; id: string }[];
 }) {
   const location = useLocation();
   const problem = index?.byId.get(item.attempt.problemId) ?? null;
@@ -189,6 +195,7 @@ function ReviewTile({
       number={problem ? problem.source_board_idx + 1 : undefined}
       verdict={v.verdict}
       retried={retried && v.verdict !== 'correct'}
+      stuck={stuck}
     />
   );
   return (

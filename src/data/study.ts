@@ -16,6 +16,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { listCollections, listProblems } from './library';
+import { removeStuck } from './stuck';
 import type {
   AttemptDoc, Move, SubmissionDoc, Verdict, VerdictDoc, LibProblem,
 } from './model';
@@ -111,6 +112,9 @@ export async function sendBatch(
       ? updateDoc(doc(db, 'attempts', a.id), { submissionId })
       : deleteDoc(doc(db, 'attempts', a.id)),
   ));
+  // Submitting a problem hands it to the teacher through the normal flow, so
+  // it leaves the stuck set automatically (best-effort; never blocks the send).
+  await removeStuck(studentUid, [...new Set(unsent.map((a) => a.problemId))]).catch(() => {});
   return submission;
 }
 
@@ -122,9 +126,13 @@ async function allAttempts(studentUid: string): Promise<AttemptDoc[]> {
   return (await getDocs(q)).docs.map((d) => d.data() as AttemptDoc);
 }
 
-/** All of a student's verdicts, keyed by attemptId (one rules-safe query). */
-export async function verdictsByAttempt(studentUid: string): Promise<Map<string, VerdictDoc>> {
-  const q = query(collection(db, 'verdicts'), where('studentUid', '==', studentUid));
+/** All of a student's verdicts, keyed by attemptId (one rules-safe query).
+ * As a teacher pass your own uid: the rules only grant reads on your own
+ * verdicts, so the query must carry the teacherUid filter to be admissible. */
+export async function verdictsByAttempt(studentUid: string, teacherUid?: string): Promise<Map<string, VerdictDoc>> {
+  const q = teacherUid
+    ? query(collection(db, 'verdicts'), where('studentUid', '==', studentUid), where('teacherUid', '==', teacherUid))
+    : query(collection(db, 'verdicts'), where('studentUid', '==', studentUid));
   const m = new Map<string, VerdictDoc>();
   for (const d of (await getDocs(q)).docs) {
     const v = d.data() as VerdictDoc;

@@ -10,6 +10,7 @@ import { computeNumberedOverlay, type MovePoint } from '../numberedMoves';
 import { toStones, boundingViewport } from '../stones';
 import { listProblems, imageUrl } from '../data/library';
 import { saveAttempt, attemptsForProblem, verdictsByAttempt } from '../data/study';
+import { watchStuck, addStuck, removeStuck } from '../data/stuck';
 import type { AttemptDoc, LibProblem, Verdict, VerdictDoc } from '../data/model';
 import '../Solve.css';
 
@@ -37,6 +38,7 @@ export function Solve() {
     ? { state: { backgroundLocation, nav: navList }, replace: true } : undefined;
 
   const [siblings, setSiblings] = useState<LibProblem[] | null>(null);
+  const [stuckIds, setStuckIds] = useState<Set<string>>(new Set());
   const [moves, setMoves] = useState<MovePoint[]>([]);
   const [history, setHistory] = useState<AttemptDoc[] | null>(null);
   const [verdicts, setVerdicts] = useState<Record<string, VerdictDoc | null>>({});
@@ -97,6 +99,8 @@ export function Solve() {
     [history],
   );
 
+  useEffect(() => watchStuck(uid, (ids) => setStuckIds(new Set(ids))), [uid]);
+
   if (siblings === null) return <div className="solve"><Spinner /></div>;
   if (!problem) return <div className="solve"><p>Problem not found.</p></div>;
 
@@ -105,6 +109,12 @@ export function Solve() {
   const viewport = boundingViewport([...stones, ...moves.map((m) => ({ x: m.x, y: m.y, color: 'B' as const }))], 5);
 
   const goToNav = (pos: number) => { const t = navItems[pos]; if (t) navigate(`/solve/${t.slug}/${t.id}`, navState); };
+
+  const isStuck = !!id && stuckIds.has(id);
+  const toggleStuck = () => {
+    if (!id) return;
+    void (isStuck ? removeStuck(uid, [id]) : addStuck(uid, id));
+  };
 
   const save = async () => {
     if (moves.length === 0) { setFlash('Play at least one move first.'); return; }
@@ -178,6 +188,10 @@ export function Solve() {
             <div className="solve-actions">
               <button onClick={() => setMoves((m) => m.slice(0, -1))} disabled={!moves.length || saving}>Undo</button>
               <button onClick={() => setMoves([])} disabled={!moves.length || saving}>Clear</button>
+              <button className={isStuck ? 'solve-stuck-btn active' : 'solve-stuck-btn'} onClick={toggleStuck}
+                title={isStuck ? 'Remove from your stuck set' : 'Park this problem in your stuck set (shared live with your teacher)'}>
+                {isStuck ? '⚑ Stuck' : '⚑ Stuck?'}
+              </button>
               <button onClick={() => goToNav(navPos - 1)} disabled={navPos <= 0 || saving}>‹ Prev</button>
               <button className="solve-save-continue" onClick={save} disabled={!moves.length || saving}>
                 {saving ? 'Saving…' : 'Save & continue ›'}

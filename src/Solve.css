@@ -68,3 +68,8 @@
 .solve-history > summary:hover, .solve-original > summary:hover { color: var(--text); }
 
 .solve-original img { display: block; margin: 0.75rem 0 0; max-width: 100%; border: 1px solid var(--border-strong); border-radius: 4px; }
+
+.solve-stuck-btn.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}

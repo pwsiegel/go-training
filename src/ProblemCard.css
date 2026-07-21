@@ -88,3 +88,9 @@
 .problem-card-grading .mini-verdict.correct.selected { background: var(--success); color: #fff; }
 .problem-card-grading .mini-verdict.incorrect.selected { background: var(--error); color: #fff; }
 .problem-card-grading .mini-verdict.flag.selected { background: var(--warning); color: #fff; }
+
+.problem-card-stuck {
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 600;
+}

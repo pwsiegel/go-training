@@ -21,6 +21,7 @@ import { Play } from './views/Play';
 import { Review } from './views/Review';
 import { GameReview } from './views/GameReview';
 import { ProGames } from './views/ProGames';
+import { Stuck } from './views/Stuck';
 import { EngineHubProvider, EngineStatusButton } from './katago/engineHub';
 
 function navClass({ isActive }: { isActive: boolean }) {
@@ -49,6 +50,7 @@ function Sidebar({ teacherMode, canToggle, onToggle }: {
           {teacherMode
             ? <span className="sidebar-group-label">Solve tsumego</span>
             : <NavLink to="/library" className={navClass}>Solve tsumego</NavLink>}
+          <NavLink to="/stuck" className={subNavClass}>Stuck</NavLink>
           <NavLink to="/submissions" end className={subNavClass}>Submissions</NavLink>
           <NavLink to="/history" className={subNavClass}>History</NavLink>
         </div>
@@ -122,6 +124,7 @@ export default function App() {
             <Route path="/library" element={<Library />} />
             <Route path="/library/:slug" element={<CollectionView />} />
             <Route path="/solve/:slug/:id" element={<Solve />} />
+            <Route path="/stuck" element={<Stuck teacherMode={teacherMode} />} />
             <Route path="/submissions" element={<Submissions teacherMode={teacherMode} />} />
             <Route path="/submissions/:id" element={<SubmissionDetail />} />
             <Route path="/history" element={<History teacherMode={teacherMode} />} />
