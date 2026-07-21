@@ -12,11 +12,12 @@ import type { AttemptDoc, UserDoc, VerdictDoc } from '../data/model';
 import '../Submissions.css';
 import './Stuck.css';
 
-/** The stuck set. Player view: problems you've parked — solve them, remove
+/** The stuck set, as a section on the Submissions page (beneath the pending
+ * outbox, same look). Player: problems you've parked — solve them, remove
  * them; membership is yours alone (submitting a problem removes it
- * automatically). Teacher view: a live, read-only window onto each linked
+ * automatically). Teacher: a live, read-only window onto each linked
  * student's stuck set, with every previous attempt visible per problem. */
-export function Stuck({ teacherMode = false }: { teacherMode?: boolean }) {
+export function StuckSection({ teacherMode = false }: { teacherMode?: boolean }) {
   return teacherMode ? <TeacherStuck /> : <PlayerStuck />;
 }
 
@@ -39,46 +40,40 @@ function PlayerStuck() {
     }).filter((n): n is { slug: string; id: string } => n !== null);
   }, [index, ids]);
 
-  if (ids === null || index === null) return <div className="submissions"><Spinner /></div>;
-
   return (
-    <div className="submissions">
-      <section className="home-section">
-        <div className="section-heading"><h2>Stuck problems</h2></div>
-        <p className="dim stuck-intro">
-          Problems you've parked for help or later thought. Your teacher sees this
-          list live, including your attempts. Submitting a problem removes it here.
-        </p>
-        <div className="section-body">
-          {ids.length === 0 ? <p className="dim">Nothing here — mark a problem as stuck from its solve page.</p> : (
-            <ul className="problem-card-grid">
-              {ids.map((pid) => {
-                const problem = index.byId.get(pid);
-                if (!problem) return null;
-                const slug = index.slugByCollection.get(problem.collection);
-                const card = (
-                  <ProblemCard
-                    stones={toStones(problem.stones)}
-                    collection={problem.collection}
-                    number={problem.source_board_idx + 1}
-                    bar={false}
-                  />
-                );
-                return (
-                  <li key={pid} className="stuck-card">
-                    {slug
-                      ? <Link to={`/solve/${slug}/${pid}`} state={{ backgroundLocation: location, nav }} className="problem-card-link">{card}</Link>
-                      : card}
-                    <button type="button" className="problem-card-remove" aria-label="Remove from stuck" title="Remove from stuck"
-                      onClick={() => removeStuck(uid, [pid])}>×</button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      </section>
-    </div>
+    <section className="home-section">
+      <div className="section-heading"><h2>Stuck problems</h2></div>
+      <div className="section-body">
+        {ids === null || index === null ? <Spinner />
+          : ids.length === 0
+            ? <p className="dim">Nothing parked. Mark a problem with ⚑ on its solve page — your teacher sees this list live.</p>
+            : (
+              <ul className="problem-card-grid">
+                {ids.map((pid) => {
+                  const problem = index.byId.get(pid);
+                  if (!problem) return null;
+                  const slug = index.slugByCollection.get(problem.collection);
+                  const card = (
+                    <ProblemCard
+                      stones={toStones(problem.stones)}
+                      collection={problem.collection}
+                      number={problem.source_board_idx + 1}
+                    />
+                  );
+                  return (
+                    <li key={pid} className="problem-card-cell">
+                      <button type="button" className="problem-card-remove" aria-label="Remove from stuck" title="Remove from stuck"
+                        onClick={() => removeStuck(uid, [pid])}>×</button>
+                      {slug
+                        ? <Link to={`/solve/${slug}/${pid}`} state={{ backgroundLocation: location, nav }} className="problem-card-link">{card}</Link>
+                        : card}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+      </div>
+    </section>
   );
 }
 
@@ -101,18 +96,20 @@ function TeacherStuck() {
     return () => unsubs.forEach((u) => u());
   }, [students]);
 
-  if (students === null || index === null) return <div className="submissions"><Spinner /></div>;
+  if (students === null || index === null) {
+    return (
+      <section className="home-section">
+        <div className="section-heading"><h2>Stuck problems</h2></div>
+        <div className="section-body"><Spinner /></div>
+      </section>
+    );
+  }
 
   const withStuck = students.filter((s) => (stuckByStudent.get(s.uid) ?? []).length > 0);
 
   return (
-    <div className="submissions">
       <section className="home-section">
         <div className="section-heading"><h2>Stuck problems</h2></div>
-        <p className="dim stuck-intro">
-          A live view of what each student has marked as stuck. Click a problem
-          to see their attempts.
-        </p>
         <div className="section-body">
           {withStuck.length === 0 ? <p className="dim">No student has stuck problems right now.</p> : (
             withStuck.map((s) => (
@@ -133,7 +130,6 @@ function TeacherStuck() {
           )}
         </div>
       </section>
-    </div>
   );
 }
 

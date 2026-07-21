@@ -10,6 +10,7 @@ import { listStudents, listTeachers } from '../data/links';
 import { findProblem } from '../data/library';
 import { SolutionModal } from '../ProblemModal';
 import { ToSubmitSection } from '../ToSubmitSection';
+import { StuckSection } from './Stuck';
 import type { LibProblem, UserDoc, Verdict, VerdictDoc } from '../data/model';
 import '../Submissions.css';
 import '../Grading.css';
@@ -117,6 +118,7 @@ function PlayerBody({ uid }: { uid: string }) {
   return (
     <>
       <ToSubmitSection />
+      <StuckSection />
       <PastSubmissions subs={data.submissions} who={teacherName} teacherMode={false} />
     </>
   );
@@ -259,6 +261,7 @@ function TeacherBody({ teacherUid }: { teacherUid: string }) {
           {pending.length === 0 ? <p className="dim">Nothing awaiting review.</p> : pending.map((v) => renderBatch(v))}
         </div>
       </section>
+      <StuckSection teacherMode />
 
       <PastSubmissions subs={past} who={studentName} teacherMode />
 

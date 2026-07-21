@@ -1,12 +1,3 @@
-.stuck-intro {
-  margin: 0.25rem 0 0.75rem;
-  font-size: 0.88rem;
-}
-
-.stuck-card {
-  position: relative;
-}
-
 .stuck-teacher-item .stuck-expand {
   display: block;
   width: 100%;
