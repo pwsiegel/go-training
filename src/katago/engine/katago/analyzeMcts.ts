@@ -83,6 +83,15 @@ class Node {
   utilitySum = 0; // from black perspective
   utilitySqSum = 0; // from black perspective
   nnUtility: number | null = null; // direct NN eval utility, from black perspective
+  // Own direct-eval components (black perspective), for recompute backup.
+  ownValue = 0;
+  ownScoreLead = 0;
+  ownScoreMean = 0;
+  ownScoreMeanSq = 0;
+  // Subtree value bias bookkeeping (see SVB_FACTOR).
+  svbEntry: SvbEntry | null = null;
+  svbLastDelta = 0;
+  svbLastWeight = 0;
   ownership: Float32Array | null = null; // len 361, +1 black owns, -1 white owns
   inFlight = 0;
   pendingEval = false;
@@ -501,6 +510,83 @@ function computeBlackUtilityFromEval(args: {
 }
 
 const VALUE_WEIGHT_EXPONENT: number = 0.25;
+
+// Subtree value bias (mirrors KataGo defaults): in-search learned corrections
+// to a node's own-eval utility, shared across branches by a hash of the local
+// 5x5 pattern (+ atari flags + ko ban) around (prevMove, move) for the mover.
+const SVB_FACTOR = 0.45;
+const SVB_WEIGHT_EXPONENT = 0.85;
+
+type SvbEntry = { deltaUtilitySum: number; weightSum: number };
+
+// Zobrist tables for the SVB key. Internal consistency is all that's needed
+// (no hash compatibility with C++), so a simple splitmix-seeded fill is fine.
+const SVB_PATTERN_SIZE = 5;
+const SVB_PATTERN_AREA = SVB_PATTERN_SIZE * SVB_PATTERN_SIZE;
+const svbZobrist = (() => {
+  let s = 0x9e3779b97f4a7c15n;
+  const next = () => {
+    s = (s + 0x9e3779b97f4a7c15n) & 0xffffffffffffffffn;
+    let z = s;
+    z = ((z ^ (z >> 30n)) * 0xbf58476d1ce4e5b9n) & 0xffffffffffffffffn;
+    z = ((z ^ (z >> 27n)) * 0x94d049bb133111ebn) & 0xffffffffffffffffn;
+    return Number((z ^ (z >> 31n)) & 0xffffffffn) >>> 0;
+  };
+  const fill = (n: number) => {
+    const a = new Uint32Array(n * 2);
+    for (let i = 0; i < a.length; i++) a[i] = next();
+    return a;
+  };
+  return {
+    moveA: fill(BOARD_AREA + 1),                  // prev-prev move (incl. pass slot)
+    moveB: fill(BOARD_AREA + 1),                  // move
+    ko: fill(BOARD_AREA),
+    pattern: fill(4 * SVB_PATTERN_AREA),          // color (0..3) x cell
+    atari: fill(SVB_PATTERN_AREA),
+    pla: fill(2),
+  };
+})();
+
+/** SVB table key for `player` playing `move`, given the board BEFORE the move
+ * (stones + libertyMap + koPoint) and the move played just before. Returns a
+ * string key for a Map. */
+function computeSvbKey(args: {
+  stones: Uint8Array;
+  libertyMap: Uint8Array;
+  koPoint: number;
+  prevMove: number;
+  move: number;
+  player: StoneColor;
+}): string {
+  const { stones, libertyMap, koPoint, prevMove, move, player } = args;
+  let lo = 0, hi = 0;
+  const mix = (table: Uint32Array, idx: number) => {
+    lo = (lo ^ table[idx * 2]!) >>> 0;
+    hi = (hi ^ table[idx * 2 + 1]!) >>> 0;
+  };
+  mix(svbZobrist.pla, player === BLACK ? 0 : 1);
+  mix(svbZobrist.moveA, prevMove === PASS_MOVE ? BOARD_AREA : prevMove);
+  mix(svbZobrist.moveB, move === PASS_MOVE ? BOARD_AREA : move);
+  if (koPoint >= 0) mix(svbZobrist.ko, koPoint);
+  if (move !== PASS_MOVE) {
+    const cx = move % BOARD_SIZE;
+    const cy = (move / BOARD_SIZE) | 0;
+    const r = SVB_PATTERN_SIZE >> 1;
+    for (let dy = -r; dy <= r; dy++) {
+      const y = cy + dy;
+      if (y < 0 || y >= BOARD_SIZE) continue;
+      for (let dx = -r; dx <= r; dx++) {
+        const x = cx + dx;
+        if (x < 0 || x >= BOARD_SIZE) continue;
+        const p = y * BOARD_SIZE + x;
+        const cell = (dy + r) * SVB_PATTERN_SIZE + (dx + r);
+        mix(svbZobrist.pattern, stones[p]! * SVB_PATTERN_AREA + cell);
+        if (stones[p] !== 0 && libertyMap[p] === 1) mix(svbZobrist.atari, cell);
+      }
+    }
+  }
+  return `${hi.toString(36)}.${lo.toString(36)}`;
+}
 const USE_NOISE_PRUNING = true;
 const NOISE_PRUNE_UTILITY_SCALE = 0.15;
 const NOISE_PRUNING_CAP = 1e50;
@@ -726,6 +812,99 @@ function computeWeightedRootStats(args: { children: ChildWeightStats[]; rootSelf
     rootScoreSelfplay,
     rootScoreStdev,
   };
+}
+
+/** KataGo-style backup: rebuild a node's stats from its children (noise-pruned,
+ * downweighted — same machinery as the root report) plus its own direct eval,
+ * with the own-eval utility biased by the node's subtree-value-bias entry. The
+ * caller has already incremented node.visits for this playout; stats are stored
+ * as avg * visits to preserve the sum/visits consumer contract. */
+function recomputeNodeStats(node: Node): void {
+  const edges = node.edges;
+  if (!edges) return;
+  const childStats: ChildWeightStats[] = [];
+  let origTotalChildWeight = 0;
+  let childUtilityWeightedSum = 0;
+  for (const e of edges) {
+    const c = e.child;
+    if (!c || c.visits <= 0) continue;
+    const u = c.utilitySum / c.visits;
+    origTotalChildWeight += c.visits;
+    childUtilityWeightedSum += c.visits * u;
+    childStats.push({
+      weightAdjusted: c.visits,
+      selfUtility: u,
+      policy: e.prior,
+      value: c.valueSum / c.visits,
+      scoreLead: c.scoreLeadSum / c.visits,
+      scoreMean: c.scoreMeanSum / c.visits,
+      scoreMeanSq: c.scoreMeanSqSum / c.visits,
+    });
+  }
+
+  const ownUtilityRaw = node.nnUtility ?? 0;
+  // Accumulate this node's (children-vs-own-eval) delta into its SVB entry,
+  // replacing its previous contribution (C++ searchupdatehelpers.cpp).
+  if (node.svbEntry && origTotalChildWeight > 1e-10) {
+    const utilityChildren = childUtilityWeightedSum / origTotalChildWeight;
+    const svbWeight = Math.pow(origTotalChildWeight, SVB_WEIGHT_EXPONENT);
+    const delta = (utilityChildren - ownUtilityRaw) * svbWeight;
+    node.svbEntry.deltaUtilitySum += delta - node.svbLastDelta;
+    node.svbEntry.weightSum += svbWeight - node.svbLastWeight;
+    node.svbLastDelta = delta;
+    node.svbLastWeight = svbWeight;
+  }
+  let ownUtility = ownUtilityRaw;
+  if (node.svbEntry && node.svbEntry.weightSum > 0.001) {
+    ownUtility += SVB_FACTOR * (node.svbEntry.deltaUtilitySum / node.svbEntry.weightSum);
+  }
+
+  if (childStats.length > 0) {
+    let totalWeight = origTotalChildWeight;
+    if (USE_NOISE_PRUNING) totalWeight = pruneNoiseWeight(childStats);
+    downweightBadChildrenAndNormalizeWeight({
+      stats: childStats,
+      currentTotalWeight: totalWeight,
+      desiredTotalWeight: totalWeight,
+      amountToSubtract: 0,
+      amountToPrune: 0,
+    });
+  }
+
+  let weightSum = 0;
+  let valueSum = 0;
+  let scoreLeadSum = 0;
+  let scoreMeanSum = 0;
+  let scoreMeanSqSum = 0;
+  let utilitySum = 0;
+  let utilitySqSum = 0;
+  for (const s of childStats) {
+    if (s.weightAdjusted <= 0) continue;
+    weightSum += s.weightAdjusted;
+    valueSum += s.weightAdjusted * s.value;
+    scoreLeadSum += s.weightAdjusted * s.scoreLead;
+    scoreMeanSum += s.weightAdjusted * s.scoreMean;
+    scoreMeanSqSum += s.weightAdjusted * s.scoreMeanSq;
+    utilitySum += s.weightAdjusted * s.selfUtility;
+    utilitySqSum += s.weightAdjusted * s.selfUtility * s.selfUtility;
+  }
+  // Own direct eval enters with weight 1 (each node is evaluated once).
+  weightSum += 1;
+  valueSum += node.ownValue;
+  scoreLeadSum += node.ownScoreLead;
+  scoreMeanSum += node.ownScoreMean;
+  scoreMeanSqSum += node.ownScoreMeanSq;
+  utilitySum += ownUtility;
+  utilitySqSum += ownUtility * ownUtility;
+
+  const v = node.visits;
+  if (v <= 0 || weightSum <= 0) return;
+  node.valueSum = (valueSum / weightSum) * v;
+  node.scoreLeadSum = (scoreLeadSum / weightSum) * v;
+  node.scoreMeanSum = (scoreMeanSum / weightSum) * v;
+  node.scoreMeanSqSum = (scoreMeanSqSum / weightSum) * v;
+  node.utilitySum = (utilitySum / weightSum) * v;
+  node.utilitySqSum = (utilitySqSum / weightSum) * v;
 }
 
 function hasLadderCandidates(libertyMap: Uint8Array): boolean {
@@ -1550,6 +1729,8 @@ export class MctsSearch {
   private rootNode: Node;
   private rootPolicy: Float32Array; // len 362
   private rootOwnership: Float32Array; // len 361
+  // Subtree-value-bias table for this search (cleared on re-root, see there).
+  private svbTable = new Map<string, SvbEntry>();
   private recentScoreCenter: number;
   private readonly rand: Rand;
   private rootSelfValue: number;
@@ -1707,6 +1888,10 @@ export class MctsSearch {
     rootNode.utilitySum = rootUtility;
     rootNode.utilitySqSum = rootUtility * rootUtility;
     rootNode.nnUtility = rootUtility;
+    rootNode.ownValue = rootValue;
+    rootNode.ownScoreLead = rootScoreLead;
+    rootNode.ownScoreMean = rootScoreMean;
+    rootNode.ownScoreMeanSq = rootScoreMeanSq;
 
     const rootPrevLibertyMap =
       rootPrevStones === rootStones ? rootLibertyMap : computeLibertyMapInto(rootPrevStones, new Uint8Array(BOARD_AREA));
@@ -1760,6 +1945,25 @@ export class MctsSearch {
     if (!target?.child) return false;
     const child = target.child;
     if (child.playerToMove !== playerToColor(args.currentPlayer)) return false;
+
+    // Reset SVB across re-roots: entries are position-context-specific enough
+    // that carrying them over is mildly wrong (KataGo instead subtracts freed
+    // nodes' contributions; clearing is the simple safe variant). Surviving
+    // nodes drop their entry refs and re-contribute nothing until re-created —
+    // their utilities keep whatever bias they already absorbed.
+    this.svbTable = new Map();
+    {
+      const stack: Node[] = [child];
+      while (stack.length > 0) {
+        const n = stack.pop()!;
+        n.svbEntry = null;
+        n.svbLastDelta = 0;
+        n.svbLastWeight = 0;
+        if (n.edges) {
+          for (const e of n.edges) if (e.child) stack.push(e.child);
+        }
+      }
+    }
 
     const rootStones = boardStateToStones(args.board);
     const rootKoPoint = computeKoPointFromPrevious({ board: args.board, previousBoard: args.previousBoard, moveHistory: args.moveHistory });
@@ -1932,6 +2136,26 @@ export class MctsSearch {
           const e = selectEdge(node, node === this.rootNode, this.wideRootNoise, this.rand);
           const move = e.move;
 
+          // SVB key needs the PRE-move board; capture it before playMove when
+          // this edge's child doesn't exist yet (prevMove = the move that led
+          // to `node`, or the game's last move at the root).
+          let svbKey: string | null = null;
+          if (!e.child && move !== PASS_MOVE) {
+            const prevMove = pathMoves.length > 0
+              ? pathMoves[pathMoves.length - 1]!.move
+              : (this.rootMoves.length > 0 ? this.rootMoves[this.rootMoves.length - 1]!.move : null);
+            if (prevMove !== null) {
+              svbKey = computeSvbKey({
+                stones: sim.stones,
+                libertyMap: libertyMapStack[depth] ?? this.rootLibertyMap,
+                koPoint: sim.koPoint,
+                prevMove,
+                move,
+                player,
+              });
+            }
+          }
+
           const snapshot = playMove(sim, move, player, captureStack);
           undoMoves.push(move);
           undoPlayers.push(player);
@@ -1963,7 +2187,17 @@ export class MctsSearch {
           }
           pathMoves.length = pathIdx + 1;
 
-          if (!e.child) e.child = new Node(opponentOf(player));
+          if (!e.child) {
+            e.child = new Node(opponentOf(player));
+            if (svbKey !== null) {
+              let entry = this.svbTable.get(svbKey);
+              if (!entry) {
+                entry = { deltaUtilitySum: 0, weightSum: 0 };
+                this.svbTable.set(svbKey, entry);
+              }
+              e.child.svbEntry = entry;
+            }
+          }
           node = e.child;
           player = node.playerToMove;
           path.push(node);
@@ -2128,15 +2362,19 @@ export class MctsSearch {
           recentScoreCenter: this.recentScoreCenter,
         });
         job.leaf.nnUtility = leafUtility;
+        job.leaf.ownValue = leafValue;
+        job.leaf.ownScoreLead = ev.blackScoreLead;
+        job.leaf.ownScoreMean = ev.blackScoreMean;
+        job.leaf.ownScoreMeanSq = ev.blackScoreStdev * ev.blackScoreStdev + ev.blackScoreMean * ev.blackScoreMean;
+        // KataGo-style backup: every path node's stats are recomputed from its
+        // children + its own (SVB-biased) eval, deepest first so parents see
+        // fresh child averages. The leaf recompute reduces to its own eval.
         for (const n of job.path) {
           n.visits += 1;
-          n.valueSum += leafValue;
-          n.scoreLeadSum += ev.blackScoreLead;
-          n.scoreMeanSum += ev.blackScoreMean;
-          n.scoreMeanSqSum += ev.blackScoreStdev * ev.blackScoreStdev + ev.blackScoreMean * ev.blackScoreMean;
-          n.utilitySum += leafUtility;
-          n.utilitySqSum += leafUtility * leafUtility;
           n.inFlight -= 1;
+        }
+        for (let i = job.path.length - 1; i >= 0; i--) {
+          recomputeNodeStats(job.path[i]!);
         }
         job.leaf.pendingEval = false;
       }
