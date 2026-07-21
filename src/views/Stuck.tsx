@@ -144,7 +144,7 @@ function TeacherStuck() {
                     {stuckByStudent.get(s.uid)!.length} problem{stuckByStudent.get(s.uid)!.length === 1 ? '' : 's'}
                   </span>
                 </h3>
-                <ul className="problem-card-grid">
+                <ul className="problem-card-grid lg">
                   {stuckByStudent.get(s.uid)!.map((pid) => {
                     const problem = index.byId.get(pid);
                     if (!problem) return null;

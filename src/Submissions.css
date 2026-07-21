@@ -23,7 +23,9 @@
 .section-heading h2 {
   margin: 0;
   font-size: 0.85rem;
-  color: var(--text-tertiary);
+  /* Accent-leaning so section transitions read at a glance (app-wide:
+     Pending submissions, Stuck, Past submissions, History, ...). */
+  color: color-mix(in srgb, var(--accent) 55%, var(--text-secondary));
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
