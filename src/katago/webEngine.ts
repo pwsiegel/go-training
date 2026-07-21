@@ -283,6 +283,12 @@ type AnalyzeArgs = {
   // Run in the worker's background analysis group: preempted by interactive
   // analyses instead of superseding them (pre-warms, prefetches).
   background?: boolean;
+  // Browser only. Time budget for the search (the worker defaults to 800ms —
+  // an interactive-latency cap that silently truncates big visit budgets).
+  maxTimeMs?: number;
+  // Browser only. Keep + continue the worker's search tree across calls with
+  // the same positionId (pondering); default discards it per call.
+  reuseTree?: boolean;
 };
 
 function emptyPointsIn(
@@ -366,6 +372,8 @@ async function analyzeBrowser(args: AnalyzeArgs): Promise<WebAnalysis | null> {
   try {
     const a = await client.analyze({
       analysisGroup: args.background ? 'background' : 'interactive',
+      maxTimeMs: args.maxTimeMs,
+      reuseTree: args.reuseTree,
       positionId: args.positionId,
       modelUrl,
       backend: 'webgpu',

@@ -310,6 +310,8 @@ export function GameReview() {
         toPlay,
         positionId: `${id}:${line}:${cursor}:${model.id}`,
         visits: effVisits,
+        maxTimeMs: ponder ? 120_000 : undefined,
+        reuseTree: ponder,
         batchSize: batchOverride ?? undefined,
         signal: ctrl.signal,
         evalNext: nextMove && childStones ? { move: { x: nextMove.x, y: nextMove.y }, stones: childStones } : null,

@@ -113,6 +113,8 @@ export function PlayView({
       toPlay: nextColor,
       positionId: posKey,
       visits: effVisits,
+      maxTimeMs: ponder ? 120_000 : undefined,
+      reuseTree: ponder,
       batchSize: batchOverride ?? undefined,
       region,
       signal: ctrl.signal,
