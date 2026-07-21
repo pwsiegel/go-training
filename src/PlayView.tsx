@@ -6,7 +6,7 @@ import type { Color, Stone } from './types';
 import { useEngineHub } from './katago/engineHub';
 import './PlayView.css';
 import { type Region } from './data/katago';
-import { analyzePosition, type WebAnalysis } from './katago/webEngine';
+import { useAnalysisSession, PONDER_TARGET } from './katago/useAnalysisSession';
 
 type Tool = 'play' | 'addB' | 'addW' | 'region' | 'number' | 'letter' | 'triangle' | 'square';
 
@@ -65,14 +65,11 @@ export function PlayView({
   const [letterCounter, setLetterCounter] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [aiOn, setAiOn] = useState(false);
-  const [aiResult, setAiResult] = useState<{ key: string; data?: WebAnalysis; error?: string } | null>(null);
   const [region, setRegion] = useState<Region | null>(null);
   const [regionAnchor, setRegionAnchor] = useState<{ x: number; y: number } | null>(null);
   const { model, visits, batchOverride, engineReady, leaseStatus } = useEngineHub();
-  // Pondering: while on, re-analyze the current position with doubling visit
-  // budgets (browser models continue the same search tree). Reset per position.
+  // Pondering raises the session's search target; the same search deepens.
   const [ponder, setPonder] = useState(false);
-  const [ponderBoost, setPonderBoost] = useState(0);
 
   const { stones, koPoint } = useMemo(
     () => replayHistory(baseStones, history),
@@ -96,51 +93,31 @@ export function PlayView({
     return `${model.id}|${nextColor}|${r}|${b}|${h}`;
   }, [baseStones, history, region, nextColor, model.id]);
 
-  useEffect(() => { setPonderBoost(0); }, [posKey, visits]);
-  const effVisits = visits * (1 << Math.min(ponderBoost, 8));
+  const sessionPosition = useMemo(() => ({
+    positionId: posKey,
+    stones,
+    previousStones: history.length > 0 ? replayHistory(baseStones, history.slice(0, -1)).stones : undefined,
+    previousPreviousStones: history.length > 1 ? replayHistory(baseStones, history.slice(0, -2)).stones : undefined,
+    initialStones: baseStones,
+    moves: history,
+    toPlay: nextColor,
+    region,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [posKey]);
 
-  useEffect(() => {
-    if (!aiOn || !engineReady) return;
-    const ctrl = new AbortController();
-    let active = true;
-    analyzePosition({
-      model,
-      stones,
-      previousStones: history.length > 0 ? replayHistory(baseStones, history.slice(0, -1)).stones : undefined,
-      previousPreviousStones: history.length > 1 ? replayHistory(baseStones, history.slice(0, -2)).stones : undefined,
-      initialStones: baseStones,
-      moves: history,
-      toPlay: nextColor,
-      positionId: posKey,
-      visits: effVisits,
-      maxTimeMs: ponder ? 120_000 : undefined,
-      reuseTree: ponder,
-      batchSize: batchOverride ?? undefined,
-      region,
-      signal: ctrl.signal,
-    })
-      .then((a) => {
-        if (!active || !a) return;
-        setAiResult({ key: posKey, data: a });
-        if (ponder && ponderBoost < 8) setPonderBoost(ponderBoost + 1);
-      })
-      .catch((e) => {
-        if (!active || ctrl.signal.aborted) return;
-        setAiResult({
-          key: posKey,
-          error: model.kind === 'local'
-            ? 'KataGo backend offline — is `make api` running?'
-            : (e instanceof Error ? e.message : 'analysis failed'),
-        });
-      });
-    return () => { active = false; ctrl.abort(); };
-  }, [aiOn, engineReady, model, posKey, stones, baseStones, history, nextColor, region, effVisits, ponder, ponderBoost, batchOverride]);
+  const session = useAnalysisSession({
+    enabled: aiOn && engineReady,
+    model,
+    position: sessionPosition,
+    targetVisits: ponder ? PONDER_TARGET : visits,
+    batchSize: batchOverride ?? undefined,
+  });
 
-  // Use the result only if it's for the current position; else we're still loading.
-  const current = aiOn && aiResult?.key === posKey ? aiResult : null;
-  const analysis = current?.data ?? null;
-  const aiError = current?.error ?? null;
-  const aiLoading = aiOn && engineReady && !current && !aiError;
+  const analysis = aiOn ? session.snapshot : null;
+  const aiError = session.error
+    ? (model.kind === 'local' ? 'KataGo backend offline — is `make api` running?' : session.error)
+    : null;
+  const aiLoading = aiOn && engineReady && session.running;
 
   // Near-optimal moves: within ~½ point of the best, ignoring low-visit noise.
   // WebAnalysis carries side-to-move pointsLost (best = 0) already.
@@ -292,9 +269,9 @@ export function PlayView({
               {ponder ? '⏸' : '▶'}
             </button>
           )}
-          {aiOn && current?.data && (
+          {aiOn && analysis && (
             <span className="play-visits" title="Playouts behind the current analysis">
-              {current.data.rootVisits.toLocaleString()}
+              {analysis.rootVisits.toLocaleString()}
             </span>
           )}
         </div>
