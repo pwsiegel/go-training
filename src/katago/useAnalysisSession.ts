@@ -5,12 +5,15 @@
 // its search tree between calls (reuseTree) and re-roots it when navigating one
 // ply forward (parentPositionId), so raising the target — the ponder button —
 // just continues the same search, and snapshots arrive continuously via the
-// worker's periodic reports. The native backend currently degrades to a single
-// result at the target (no streaming) — replaced by the GTP session bridge.
+// worker's periodic reports. The native backend streams the same way through
+// its GTP session bridge (/api/katago/session, kata-analyze underneath), whose
+// engine likewise keeps its tree across play/undo position changes.
 import { useEffect, useRef, useState } from 'react';
 import {
-  analyzePosition, type AnalysisModel, type AnalyzeArgs, type WebAnalysis,
+  analyzePosition, emptyPointsIn, mapBackend,
+  type AnalysisModel, type AnalyzeArgs, type WebAnalysis,
 } from './webEngine';
+import { streamNativeAnalysis } from '../data/katagoSession';
 import type { Color, Stone } from '../types';
 import type { GameMove } from '../data/model';
 
@@ -65,9 +68,34 @@ export function useAnalysisSession(args: {
       return a;
     };
 
+    const ctrl = new AbortController();
     const timer = window.setTimeout(() => {
       setInFlight(true);
       setError('');
+      if (model.kind === 'local') {
+        // Native session: NDJSON stream from the backend's GTP engine; the
+        // one-time played-move eval isn't available here, so playedEval is
+        // candidate-derived only.
+        streamNativeAnalysis({
+          initialStones: pos.initialStones ?? [],
+          moves: pos.moves,
+          toPlay: pos.toPlay,
+          maxVisits: targetVisits,
+          allowMoves: pos.region ? emptyPointsIn(pos.region, pos.stones) : null,
+          signal: ctrl.signal,
+          onReport: (report) => {
+            if (!active || !report.root) return;
+            setSnap({ forId: pos.positionId, data: withPlayedEval(mapBackend(report, pos.toPlay)) });
+          },
+        })
+          .then(() => { if (active) setInFlight(false); })
+          .catch((e) => {
+            if (!active || ctrl.signal.aborted) return;
+            setInFlight(false);
+            setError(e instanceof Error ? e.message : 'analysis failed');
+          });
+        return;
+      }
       analyzePosition({
         model,
         stones: pos.stones,
@@ -103,7 +131,7 @@ export function useAnalysisSession(args: {
           setError(e instanceof Error ? e.message : 'analysis failed');
         });
     }, args.debounceMs ?? 250);
-    return () => { active = false; window.clearTimeout(timer); };
+    return () => { active = false; ctrl.abort(); window.clearTimeout(timer); };
     // Position identity is (positionId, region); the boards/moves are derived.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, model, position?.positionId, regionKey, targetVisits, batchSize]);

@@ -295,7 +295,7 @@ export type AnalyzeArgs = {
   reuseTree?: boolean;
 };
 
-function emptyPointsIn(
+export function emptyPointsIn(
   region: { colMin: number; colMax: number; rowMin: number; rowMax: number }, stones: Stone[],
 ): { x: number; y: number }[] {
   const occ = new Set(stones.map((s) => `${s.x},${s.y}`));
@@ -405,7 +405,7 @@ async function analyzeBrowser(args: AnalyzeArgs): Promise<WebAnalysis | null> {
   }
 }
 
-function mapBackend(a: BackendAnalysis, toPlay: Color): WebAnalysis {
+export function mapBackend(a: BackendAnalysis, toPlay: Color): WebAnalysis {
   // pointsLost = how far behind the best move, in the side-to-move's score.
   const sideValue = (lead: number) => (toPlay === 'B' ? lead : -lead);
   const best = a.moves.length ? sideValue(a.moves[0].score_lead) : 0;
