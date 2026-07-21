@@ -9,3 +9,4 @@ dist/
 public/katago-worker.js
 public/tfjs/
 public/models/*.bin.gz
+analysis_logs/
