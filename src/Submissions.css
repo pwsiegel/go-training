@@ -20,8 +20,8 @@
   /* A touch stronger than --bg-subtle so section transitions read at a
      glance (app-wide: Pending submissions, Stuck, Past submissions,
      History, ...). */
-  background: color-mix(in srgb, var(--text) 6%, var(--bg-subtle));
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 10%, var(--bg-soft));
+  background: color-mix(in srgb, var(--text) 11%, var(--bg-subtle));
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 16%, var(--bg-soft));
 }
 .section-heading h2 {
   margin: 0;
