@@ -8,9 +8,9 @@ import { watchStuck, removeStuck } from '../data/stuck';
 import { attemptsForProblem, verdictsByAttempt } from '../data/study';
 import { listStudents } from '../data/links';
 import { problemIndex, type ProblemIndex } from '../data/library';
-import type { AttemptDoc, UserDoc, VerdictDoc } from '../data/model';
+import { SolutionModal, type HistoryEntry } from '../ProblemModal';
+import type { UserDoc } from '../data/model';
 import '../Submissions.css';
-import './Stuck.css';
 
 /** The stuck set, as a section on the Submissions page (beneath the pending
  * outbox, same look). Player: problems you've parked — solve them, remove
@@ -83,6 +83,30 @@ function TeacherStuck() {
   const [students, setStudents] = useState<UserDoc[] | null>(null);
   const [stuckByStudent, setStuckByStudent] = useState<Map<string, string[]>>(new Map());
   const [index, setIndex] = useState<ProblemIndex | null>(null);
+  const [open, setOpen] = useState<{ studentUid: string; problemId: string } | null>(null);
+  const [history, setHistory] = useState<HistoryEntry[] | null>(null);
+
+  // Load the student's attempt history for the opened problem (verdicts are
+  // the teacher's own — the only ones the rules let her query).
+  useEffect(() => {
+    if (!open) return;
+    let on = true;
+    Promise.all([
+      attemptsForProblem(open.studentUid, open.problemId),
+      verdictsByAttempt(open.studentUid, uid).catch(() => new Map()),
+    ]).then(([atts, verdicts]) => {
+      if (!on) return;
+      setHistory([...atts]
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .map((a) => ({
+          id: a.id, moves: a.moves,
+          verdict: verdicts.get(a.id)?.verdict ?? null,
+          reviewedAt: verdicts.get(a.id)?.reviewedAt ?? 0,
+          createdAt: a.createdAt,
+        })));
+    });
+    return () => { on = false; };
+  }, [open, uid]);
 
   useEffect(() => { listStudents(uid).then(setStudents); }, [uid]);
   useEffect(() => { problemIndex().then(setIndex); }, []);
@@ -121,69 +145,38 @@ function TeacherStuck() {
                   </span>
                 </h3>
                 <ul className="problem-card-grid">
-                  {stuckByStudent.get(s.uid)!.map((pid) => (
-                    <StuckProblem key={`${s.uid}:${pid}`} studentUid={s.uid} problemId={pid} index={index} />
-                  ))}
+                  {stuckByStudent.get(s.uid)!.map((pid) => {
+                    const problem = index.byId.get(pid);
+                    if (!problem) return null;
+                    return (
+                      <li key={`${s.uid}:${pid}`}>
+                        <button type="button" className="problem-card-link stuck-open-btn"
+                          onClick={() => setOpen({ studentUid: s.uid, problemId: pid })}>
+                          <ProblemCard
+                            stones={toStones(problem.stones)}
+                            collection={problem.collection}
+                            number={problem.source_board_idx + 1}
+                            bar={false}
+                          />
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
               </section>
             ))
           )}
         </div>
+        {open && index.byId.get(open.problemId) && (
+          <SolutionModal
+            problem={index.byId.get(open.problemId)!}
+            moves={history?.[0]?.moves ?? []}
+            defaultMode="explore"
+            history={history ?? []}
+            historyOpen
+            onClose={() => { setOpen(null); setHistory(null); }}
+          />
+        )}
       </section>
-  );
-}
-
-/** One stuck problem in the teacher view: the position, expandable to the
- * student's full attempt history on it (latest first, verdicts included). */
-function StuckProblem({ studentUid, problemId, index }: {
-  studentUid: string; problemId: string; index: ProblemIndex;
-}) {
-  const { user } = useAuth();
-  const [open, setOpen] = useState(false);
-  const [attempts, setAttempts] = useState<AttemptDoc[] | null>(null);
-  const [verdicts, setVerdicts] = useState<Map<string, VerdictDoc>>(new Map());
-  const problem = index.byId.get(problemId);
-
-  useEffect(() => {
-    if (!open || attempts !== null) return;
-    attemptsForProblem(studentUid, problemId).then((as) =>
-      setAttempts([...as].sort((a, b) => b.createdAt - a.createdAt)));
-    verdictsByAttempt(studentUid, user!.uid).then(setVerdicts).catch(() => {});
-  }, [open, attempts, studentUid, problemId, user]);
-
-  if (!problem) return null;
-
-  return (
-    <li className={open ? 'stuck-teacher-item open' : 'stuck-teacher-item'}>
-      <button type="button" className="stuck-expand" onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}>
-        <ProblemCard
-          stones={toStones(problem.stones)}
-          collection={problem.collection}
-          number={problem.source_board_idx + 1}
-          bar={false}
-        />
-      </button>
-      {open && (
-        <div className="stuck-attempts">
-          {attempts === null ? <Spinner />
-            : attempts.length === 0 ? <p className="dim">No attempts yet.</p>
-              : (
-                <ul className="problem-card-grid stuck-attempts-grid">
-                  {attempts.map((a) => (
-                    <li key={a.id}>
-                      <ProblemCard
-                        stones={toStones(problem.stones)}
-                        moves={a.moves.map((m) => ({ x: m.col, y: m.row }))}
-                        collection={new Date(a.createdAt).toLocaleString()}
-                        verdict={verdicts.get(a.id)?.verdict ?? null}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              )}
-        </div>
-      )}
-    </li>
   );
 }

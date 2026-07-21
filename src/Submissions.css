@@ -155,3 +155,16 @@
 .reviewed-verdict-mark { font-weight: 600; }
 .reviewed-verdict-label { font-weight: 500; }
 .reviewed-verdict-when { color: var(--text-faint); font-size: 0.78rem; }
+
+/* Card-as-button (teacher stuck view): neutralize button chrome so the card
+   renders identically to a linked card. */
+.stuck-open-btn {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}

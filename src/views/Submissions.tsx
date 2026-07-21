@@ -293,6 +293,7 @@ function TeacherBody({ teacherUid }: { teacherUid: string }) {
               onNext: () => setOpen((o) => o && { ...o, idx: Math.min(view.items.length - 1, o.idx + 1) }),
             }}
             history={history}
+            historyOpen
             onClose={() => setOpen(null)}
           />
         );

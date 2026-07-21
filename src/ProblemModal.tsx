@@ -42,7 +42,7 @@ const VERDICT_TEXT: Record<Verdict, string> = {
 export type HistoryEntry = { id: string; moves: Move[]; verdict: Verdict | null; reviewedAt: number; createdAt: number };
 
 export function SolutionModal({
-  problem, moves, verdict, reviewedAt, retryHref, defaultMode = 'solution', nav, history, onClose,
+  problem, moves, verdict, reviewedAt, retryHref, defaultMode = 'solution', nav, history, historyOpen = false, onClose,
 }: {
   problem: LibProblem;
   moves: Move[];
@@ -52,6 +52,8 @@ export function SolutionModal({
   defaultMode?: 'solution' | 'explore';
   nav?: { index: number; total: number; onPrev: () => void; onNext: () => void };
   history?: HistoryEntry[];
+  /** Render the attempt history expanded (teacher views); still collapsible. */
+  historyOpen?: boolean;
   onClose: () => void;
 }) {
   const [mode, setMode] = useState<'solution' | 'explore'>(defaultMode);
@@ -145,7 +147,7 @@ export function SolutionModal({
         )}
 
         {history && history.length > 0 && (
-          <details className="solve-history">
+          <details className="solve-history" open={historyOpen || undefined}>
             <summary>Attempt history ({history.length})</summary>
             <ul className="problem-card-grid lg">
               {history.map((h) => (
