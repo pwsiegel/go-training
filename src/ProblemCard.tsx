@@ -58,7 +58,7 @@ export function ProblemCard({
   const vp = boundingViewport([...stones, ...pts], 3);
   const viewport = vp ? square(vp) : undefined;
   return (
-    <div className={`problem-card${verdict ? ` v-${verdict}` : ''}${className ? ` ${className}` : ''}`}>
+    <div className={`problem-card${verdict ? ` v-${verdict}` : ''}${stuck ? ' is-stuck' : ''}${className ? ` ${className}` : ''}`}>
       {collection && <div className="problem-card-collection" title={collection}>{collection}</div>}
       <div className="problem-card-board">
         <Board stones={stones} numberedMoves={overlay?.boardNumbers} viewport={viewport} displayOnly />
@@ -67,10 +67,11 @@ export function ProblemCard({
         <div className="problem-card-footer">
           {number !== undefined && <span className="problem-card-num">#{number}</span>}
           {retried && <span className="problem-card-retried">↻ retried</span>}
-          {stuck && <span className="problem-card-stuck">⚑ stuck</span>}
+          {stuck && verdict && <span className="problem-card-stuck">? stuck</span>}
         </div>
       )}
       {bar && verdict && <div className={`problem-card-bar v-${verdict}`}>{MARK[verdict]}</div>}
+      {bar && !verdict && stuck && <div className="problem-card-bar v-stuck">?</div>}
     </div>
   );
 }

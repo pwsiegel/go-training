@@ -15,6 +15,9 @@
   border: 2px solid var(--border); border-radius: 6px; background: var(--bg);
   overflow: hidden; display: flex; flex-direction: column;
 }
+/* Stuck: same treatment family as verdicts (accent = parked/needs help).
+   Declared before the verdict colors so a verdict border wins when both apply. */
+.problem-card.is-stuck { border-color: var(--accent); }
 .problem-card.v-correct { border-color: var(--success); }
 .problem-card.v-incorrect { border-color: var(--error); }
 .problem-card.v-flag { border-color: var(--warning); }
@@ -47,6 +50,7 @@
 .problem-card-bar.v-incorrect { color: var(--error-strong); background: var(--error-bg); }
 .problem-card-bar.v-flag { color: var(--warning-strong); background: var(--warning-bg); }
 .problem-card-bar.v-pending { color: var(--text-faint); }
+.problem-card-bar.v-stuck { color: var(--accent); background: var(--accent-bg); }
 
 /* ---- external composition helpers ---- */
 

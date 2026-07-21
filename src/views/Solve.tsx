@@ -190,7 +190,7 @@ export function Solve() {
               <button onClick={() => setMoves([])} disabled={!moves.length || saving}>Clear</button>
               <button className={isStuck ? 'solve-stuck-btn active' : 'solve-stuck-btn'} onClick={toggleStuck}
                 title={isStuck ? 'Remove from your stuck set' : 'Park this problem in your stuck set (shared live with your teacher)'}>
-                {isStuck ? '⚑ Stuck' : '⚑ Stuck?'}
+                {isStuck ? '? Stuck' : 'Mark stuck'}
               </button>
               <button onClick={() => goToNav(navPos - 1)} disabled={navPos <= 0 || saving}>‹ Prev</button>
               <button className="solve-save-continue" onClick={save} disabled={!moves.length || saving}>

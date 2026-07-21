@@ -46,7 +46,7 @@ function PlayerStuck() {
       <div className="section-body">
         {ids === null || index === null ? <Spinner />
           : ids.length === 0
-            ? <p className="dim">Nothing parked. Mark a problem with ⚑ on its solve page — your teacher sees this list live.</p>
+            ? <p className="dim">Nothing parked. Use "Mark stuck" on a problem's solve page — your teacher sees this list live.</p>
             : (
               <ul className="problem-card-grid">
                 {ids.map((pid) => {
@@ -58,6 +58,7 @@ function PlayerStuck() {
                       stones={toStones(problem.stones)}
                       collection={problem.collection}
                       number={problem.source_board_idx + 1}
+                      stuck
                     />
                   );
                   return (
@@ -156,7 +157,7 @@ function TeacherStuck() {
                             stones={toStones(problem.stones)}
                             collection={problem.collection}
                             number={problem.source_board_idx + 1}
-                            bar={false}
+                            stuck
                           />
                         </button>
                       </li>
