@@ -16,7 +16,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { listCollections, listProblems } from './library';
-import { removeStuck } from './stuck';
+import { getStuckSet } from './stuck';
 import type {
   AttemptDoc, Move, SubmissionDoc, Verdict, VerdictDoc, LibProblem,
 } from './model';
@@ -79,9 +79,13 @@ async function unsentAttempts(studentUid: string): Promise<AttemptDoc[]> {
   return (await getDocs(q)).docs.map((d) => d.data() as AttemptDoc);
 }
 
-/** Latest unsent attempt per problem — what would be sent next. */
+/** Latest unsent attempt per problem — what would be sent next. Stuck problems
+ * are excluded: they can never sit in a pending submission. */
 export async function listBatch(studentUid: string): Promise<AttemptDoc[]> {
-  return latestPerProblem(await unsentAttempts(studentUid));
+  const [unsent, stuck] = await Promise.all([
+    unsentAttempts(studentUid), getStuckSet(studentUid),
+  ]);
+  return latestPerProblem(unsent).filter((a) => !stuck.has(a.problemId));
 }
 
 export async function removeFromBatch(studentUid: string, problemId: string): Promise<void> {
@@ -94,7 +98,11 @@ export async function removeFromBatch(studentUid: string, problemId: string): Pr
 export async function sendBatch(
   studentUid: string, teacherUid: string,
 ): Promise<SubmissionDoc> {
-  const unsent = await unsentAttempts(studentUid);
+  const [all, stuck] = await Promise.all([
+    unsentAttempts(studentUid), getStuckSet(studentUid),
+  ]);
+  // Stuck problems are held back — submitting requires an explicit unstick.
+  const unsent = all.filter((a) => !stuck.has(a.problemId));
   const latest = new Set(latestPerProblem(unsent).map((a) => a.id));
 
   const submissionId = newId('submissions');
@@ -112,9 +120,6 @@ export async function sendBatch(
       ? updateDoc(doc(db, 'attempts', a.id), { submissionId })
       : deleteDoc(doc(db, 'attempts', a.id)),
   ));
-  // Submitting a problem hands it to the teacher through the normal flow, so
-  // it leaves the stuck set automatically (best-effort; never blocks the send).
-  await removeStuck(studentUid, [...new Set(unsent.map((a) => a.problemId))]).catch(() => {});
   return submission;
 }
 

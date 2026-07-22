@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { useLocation } from 'react-router-dom';
 import { useAuth } from './auth';
 import { listBatch } from './data/study';
+import { watchStuck } from './data/stuck';
 import type { AttemptDoc } from './data/model';
 
 type BatchValue = { batch: AttemptDoc[]; refresh: () => void };
@@ -24,6 +25,12 @@ export function BatchProvider({ children }: { children: ReactNode }) {
   }, [user]);
 
   useEffect(refresh, [refresh, location.pathname]);
+  // The batch excludes stuck problems, so re-fetch whenever the stuck set
+  // changes (e.g. marking/unmarking on the solve page updates the outbox live).
+  useEffect(() => {
+    if (!user) return;
+    return watchStuck(user.uid, () => refresh());
+  }, [user, refresh]);
 
   return <BatchContext.Provider value={{ batch, refresh }}>{children}</BatchContext.Provider>;
 }

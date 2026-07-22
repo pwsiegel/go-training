@@ -117,6 +117,7 @@ export function Solve() {
   };
 
   const save = async () => {
+    if (isStuck) { setFlash('This problem is stuck — unstick it first to submit.'); return; }
     if (moves.length === 0) { setFlash('Play at least one move first.'); return; }
     setSaving(true);
     try {
@@ -193,8 +194,9 @@ export function Solve() {
                 {isStuck ? '? Stuck' : 'Mark stuck'}
               </button>
               <button onClick={() => goToNav(navPos - 1)} disabled={navPos <= 0 || saving}>‹ Prev</button>
-              <button className="solve-save-continue" onClick={save} disabled={!moves.length || saving}>
-                {saving ? 'Saving…' : 'Save & continue ›'}
+              <button className="solve-save-continue" onClick={save} disabled={!moves.length || saving || isStuck}
+                title={isStuck ? 'This problem is stuck — unstick it to add it to a submission' : undefined}>
+                {saving ? 'Saving…' : 'Add to submission ›'}
               </button>
               <button onClick={() => goToNav(navPos + 1)} disabled={navPos + 1 >= navTotal || saving}>Next ›</button>
             </div>
