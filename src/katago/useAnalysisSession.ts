@@ -10,7 +10,7 @@
 // engine likewise keeps its tree across play/undo position changes.
 import { useEffect, useRef, useState } from 'react';
 import {
-  analyzePosition, emptyPointsIn, mapBackend,
+  analyzePosition, emptyPointsIn, evalPlayedMove, mapBackend,
   type AnalysisModel, type AnalyzeArgs, type WebAnalysis,
 } from './webEngine';
 import { streamNativeAnalysis } from '../data/katagoSession';
@@ -73,9 +73,11 @@ export function useAnalysisSession(args: {
       setInFlight(true);
       setError('');
       if (model.kind === 'local') {
-        // Native session: NDJSON stream from the backend's GTP engine; the
-        // one-time played-move eval isn't available here, so playedEval is
-        // candidate-derived only.
+        // Native session: NDJSON stream from the backend's GTP engine. The
+        // stream can't eval an arbitrary unsearched move, so when the played
+        // move is missing from the candidates it gets a one-time probe via the
+        // one-off analyze endpoint — the played move always carries an eval.
+        let probing = false;
         streamNativeAnalysis({
           initialStones: pos.initialStones ?? [],
           moves: pos.moves,
@@ -85,7 +87,28 @@ export function useAnalysisSession(args: {
           signal: ctrl.signal,
           onReport: (report) => {
             if (!active || !report.root) return;
-            setSnap({ forId: pos.positionId, data: withPlayedEval(mapBackend(report, pos.toPlay)) });
+            const mapped = mapBackend(report, pos.toPlay);
+            setSnap({ forId: pos.positionId, data: withPlayedEval(mapped) });
+            const nm = pos.evalNext?.move;
+            if (!nm || probing) return;
+            if (playedEvalRef.current?.forId === pos.positionId) return;
+            if (mapped.moves.some((m) => m.x === nm.x && m.y === nm.y)) return;
+            probing = true;
+            evalPlayedMove({
+              model,
+              stones: pos.stones,
+              initialStones: pos.initialStones,
+              moves: pos.moves,
+              toPlay: pos.toPlay,
+              positionId: pos.positionId,
+              visits: targetVisits,
+              evalNext: pos.evalNext,
+              signal: ctrl.signal,
+            }, mapped).then((value) => {
+              if (!active || !value) return;
+              playedEvalRef.current = { forId: pos.positionId, value };
+              setSnap({ forId: pos.positionId, data: withPlayedEval(mapped) });
+            });
           },
         })
           .then(() => { if (active) setInFlight(false); })
