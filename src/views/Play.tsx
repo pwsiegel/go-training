@@ -102,6 +102,20 @@ export function Play() {
     setDropMoves(d.dropMoves ?? 10);
   }, [profile, phase]);
 
+  // The saved engine choice seeds separately: 'local' can only apply once the
+  // native backend's health check has passed, which resolves after the profile.
+  // A manual pick in the meantime wins (the radio marks this ref).
+  const seededEngine = useRef(false);
+  useEffect(() => {
+    if (seededEngine.current || phase !== 'setup') return;
+    const wanted = profile?.playDefaults?.engine;
+    if (wanted === 'local' && !localAvailable) return;   // keep waiting for the health check
+    if (wanted) {
+      seededEngine.current = true;
+      setEngine(wanted);
+    }
+  }, [profile, localAvailable, phase]);
+
   const atLive = viewing === null;
   const viewIndex = viewing ?? history.length;
   const viewMoves = useMemo(() => (atLive ? history : history.slice(0, viewing!)), [atLive, history, viewing]);
@@ -242,7 +256,7 @@ export function Play() {
       : colorChoice;
     if (user) {
       void setPlayDefaults(user.uid, {
-        colorChoice, rank, temperature, moveDelay, scoreMode, alertKind, alertThreshold, dropPoints, dropMoves,
+        colorChoice, rank, temperature, moveDelay, engine, scoreMode, alertKind, alertThreshold, dropPoints, dropMoves,
       }).catch(() => {});   // best-effort: a failed default-save shouldn't block play
     }
     setMyColor(resolved);
@@ -366,7 +380,12 @@ export function Play() {
         <div className="play-engines">
           {ENGINES.filter((e) => e.id === 'browser' || localAvailable).map((e) => (
             <label key={e.id} className={engine === e.id ? 'play-engine active' : 'play-engine'}>
-              <input type="radio" name="play-engine" checked={engine === e.id} onChange={() => setEngine(e.id)} />
+              <input
+                type="radio"
+                name="play-engine"
+                checked={engine === e.id}
+                onChange={() => { seededEngine.current = true; setEngine(e.id); }}
+              />
               <span className="play-engine-main">
                 <span className="play-engine-name">{e.name}</span>
                 <span className="play-engine-sub">{e.runtime}</span>

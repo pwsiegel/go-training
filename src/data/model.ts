@@ -53,6 +53,7 @@ export type PlayDefaults = {
   rank: string;
   temperature: number;
   moveDelay: number;
+  engine?: 'browser' | 'local';    // 'local' applies only when the native backend is reachable
   scoreMode: 'show' | 'hide' | 'alert';
   alertKind?: 'behind' | 'drop';   // behind = absolute deficit, drop = recent loss
   alertThreshold: number;          // behind: alert at this deficit
