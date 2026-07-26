@@ -12,9 +12,19 @@ import { Board } from '../Board';
 import { Spinner } from '../Spinner';
 import { FilterChips } from '../FilterChips';
 import { ManagePlayersModal } from './ManagePlayersModal';
+import { UploadGameModal } from './UploadGameModal';
 import './Review.css';
 
 const LOCAL_AI = 'local-ai';
+const UPLOADED = 'uploaded';
+
+/** Display name for a game card: the stored name, else a source default. */
+function gameName(g: GameDoc): string {
+  if (g.name) return g.name;
+  if (g.source === 'fox') return 'Fox game';
+  if (g.source === 'go-training') return 'vs KataGo';
+  return 'Game';
+}
 const PAGE_SIZE = 32;
 const dedupeById = (gs: GameDoc[]) => Array.from(new Map(gs.map((g) => [g.id, g])).values());
 const scoreLabel = (lead: number) => `${lead >= 0 ? 'B' : 'W'}+${Math.abs(lead).toFixed(1)}`;
@@ -65,9 +75,10 @@ function GameCard({ game, outcome, onOpen, onDelete }: {
         <Board stones={stones} displayOnly thumbnail />
       </div>
       <div className="game-card-meta">
+        <div className="game-card-name">{gameName(game)}</div>
         <div className="game-card-players">
-          {info.playerBlack} <span className="review-rank">[{info.rankBlack}]</span>{' '}vs{' '}
-          {info.playerWhite} <span className="review-rank">[{info.rankWhite}]</span>
+          {info.playerBlack || 'Black'}{info.rankBlack && <> <span className="review-rank">[{info.rankBlack}]</span></>}{' '}vs{' '}
+          {info.playerWhite || 'White'}{info.rankWhite && <> <span className="review-rank">[{info.rankWhite}]</span></>}
         </div>
         <div className="game-card-sub">
           {shortDate(game.createdAt)} · {moves.length} moves ·{' '}
@@ -95,6 +106,7 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [foxOk, setFoxOk] = useState(false);
   const [managing, setManaging] = useState(false);
+  const [uploading, setUploading] = useState(false);
   // Page lives in the URL so opening a game and coming back (button or browser
   // back) returns to the same page.
   const [searchParams, setSearchParams] = useSearchParams();
@@ -134,7 +146,7 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
           setAccounts(a);
           setGames(own);
           setMyUids(new Set(a.filter((x) => x.isMine).map((x) => x.uid)));
-          setSelected(new Set([LOCAL_AI, ...a.map((x) => String(x.uid))]));
+          setSelected(new Set([LOCAL_AI, UPLOADED, ...a.map((x) => String(x.uid))]));
         })
         .catch(() => { if (active) setGames([]); });
       foxAvailable().then((ok) => { if (active) setFoxOk(ok); });
@@ -143,15 +155,17 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
   }, [user, teacherMode]);
 
   const hasLocalAi = useMemo(() => !!games?.some((g) => g.source === 'go-training'), [games]);
+  const hasUploads = useMemo(() => !!games?.some((g) => g.source === 'upload'), [games]);
 
-  // Student view: your Fox accounts + vs-KataGo. Teacher view: one read-only
-  // "shared by <student>" chip per linked student.
+  // Student view: your Fox accounts + vs-KataGo + uploads. Teacher view: one
+  // read-only "shared by <student>" chip per linked student.
   const chips = useMemo(() => {
     if (teacherMode) return students.map((s) => ({ key: `student:${s.uid}`, label: `shared by ${s.displayName}` }));
     const list = accounts.map((a) => ({ key: String(a.uid), label: a.username }));
     if (hasLocalAi) list.push({ key: LOCAL_AI, label: 'vs KataGo' });
+    if (hasUploads) list.push({ key: UPLOADED, label: 'uploaded' });
     return list;
-  }, [teacherMode, students, accounts, hasLocalAi]);
+  }, [teacherMode, students, accounts, hasLocalAi, hasUploads]);
 
   const visible = useMemo(() => {
     if (!games) return [];
@@ -159,6 +173,7 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
       .filter((g) => {
         if (teacherMode) return selected.has(`student:${g.ownerUid}`);
         if (g.source === 'go-training') return selected.has(LOCAL_AI);
+        if (g.source === 'upload') return selected.has(UPLOADED);
         return (g.blackUid != null && selected.has(String(g.blackUid)))
           || (g.whiteUid != null && selected.has(String(g.whiteUid)));
       })
@@ -208,10 +223,17 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
     <div className="review">
       <div className="review-head">
         <h1>{teacherMode ? 'Shared games' : 'Games'}</h1>
-        {!teacherMode && foxOk && (
-          <button type="button" className="review-manage" onClick={() => setManaging(true)}>
-            Manage players
-          </button>
+        {!teacherMode && (
+          <div className="review-head-actions">
+            <button type="button" className="review-manage" onClick={() => setUploading(true)}>
+              Upload game
+            </button>
+            {foxOk && (
+              <button type="button" className="review-manage" onClick={() => setManaging(true)}>
+                Manage players
+              </button>
+            )}
+          </div>
         )}
       </div>
 
@@ -248,6 +270,18 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
         </>
       )}
 
+      {uploading && user && (
+        <UploadGameModal
+          ownerUid={user.uid}
+          onClose={() => setUploading(false)}
+          onSaved={(g) => {
+            setUploading(false);
+            setGames((gs) => dedupeById([g, ...(gs ?? [])]));
+            setSelected((sel) => new Set([...sel, UPLOADED]));
+            navigate(`/review/${g.id}`, { state: { from: backTo } });
+          }}
+        />
+      )}
       {managing && user && (
         <ManagePlayersModal
           ownerUid={user.uid}

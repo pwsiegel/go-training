@@ -105,7 +105,7 @@ export type LinkDoc = {
 
 /** Where a game came from. Locally-played KataGo games are `go-training`;
  * games imported from Fox Weiqi are `fox`. Other sites can be added later. */
-export type GameSource = 'go-training' | 'fox' | 'gogod';
+export type GameSource = 'go-training' | 'fox' | 'gogod' | 'upload';
 
 export type GameMove = { color: Color; x: number; y: number };
 
@@ -118,6 +118,9 @@ export type GameDoc = {
   source: GameSource;
   createdAt: number;
   sgf: string;
+  // Display name. Absent on older docs — the review list falls back by source
+  // (e.g. "Fox game").
+  name?: string;
   // play vs KataGo only — absent on imported games
   myColor?: Color;
   rank?: string;                      // humanSLProfile, e.g. "rank_9k"
