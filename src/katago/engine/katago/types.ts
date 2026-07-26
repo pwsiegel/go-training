@@ -194,12 +194,20 @@ export interface KataGoHumanPolicyResponse {
   error?: string;
 }
 
+/** Preempt every running/queued analyze (handled synchronously, skipping the
+ * worker's serial queue) so a follow-up request isn't stuck behind a long
+ * search — e.g. a genmove after leaving a pondering review. */
+export type KataGoCancelAnalysesRequest = {
+  type: 'katago:cancel_analyses';
+};
+
 export type KataGoWorkerRequest =
   | KataGoInitRequest
   | KataGoAnalyzeRequest
   | KataGoEvalRequest
   | KataGoEvalBatchRequest
-  | KataGoHumanPolicyRequest;
+  | KataGoHumanPolicyRequest
+  | KataGoCancelAnalysesRequest;
 export type KataGoModelStatusEvent = {
   type: 'katago:model_status';
   status: 'loading' | 'ready' | 'error';

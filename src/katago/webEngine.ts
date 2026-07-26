@@ -230,6 +230,9 @@ export async function genmoveBrowser(args: {
   koPoint?: { x: number; y: number } | null;
 }): Promise<{ move: { x: number; y: number } | null; scoreLead: number }> {
   const client = getKataGoEngineClient();
+  // Don't queue behind a leftover analysis search (e.g. a still-pondering
+  // review) — preempt it so the human net loads and replies now.
+  client.cancelAnalyses();
   const query = {
     modelUrl: await storageUrl(HUMAN_NET_PATH),
     backend: 'webgpu' as const,

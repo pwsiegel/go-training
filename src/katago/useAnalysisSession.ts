@@ -13,6 +13,7 @@ import {
   analyzePosition, emptyPointsIn, evalPlayedMove, mapBackend,
   type AnalysisModel, type AnalyzeArgs, type WebAnalysis,
 } from './webEngine';
+import { getKataGoEngineClient } from './engine/katago/client';
 import { streamNativeAnalysis } from '../data/katagoSession';
 import type { Color, Stone } from '../types';
 import type { GameMove } from '../data/model';
@@ -154,7 +155,16 @@ export function useAnalysisSession(args: {
           setError(e instanceof Error ? e.message : 'analysis failed');
         });
     }, args.debounceMs ?? 250);
-    return () => { active = false; ctrl.abort(); window.clearTimeout(timer); };
+    return () => {
+      active = false;
+      ctrl.abort();
+      window.clearTimeout(timer);
+      // Actually stop the worker's search (there is no per-request cancel):
+      // without this, leaving review keeps a pondering search running for
+      // minutes and anything queued behind it — a Play genmove — hangs. On
+      // navigation the next analyze re-roots the kept tree as before.
+      if (model.kind !== 'local') getKataGoEngineClient().cancelAnalyses();
+    };
     // Position identity is (positionId, region); the boards/moves are derived.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, model, position?.positionId, regionKey, targetVisits, batchSize]);

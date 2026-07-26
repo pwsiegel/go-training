@@ -145,6 +145,14 @@ class KataGoEngineClient {
     this.worker.terminate();
   }
 
+  /** Preempt every running/queued analyze so the next request (a genmove, a
+   * fresh session) starts immediately instead of waiting out a long search.
+   * Canceled requests resolve as canceled — callers already treat that as
+   * benign supersession. */
+  cancelAnalyses(): void {
+    this.postToWorker({ type: 'katago:cancel_analyses' });
+  }
+
   private postToWorker(message: KataGoWorkerRequest): void {
     try {
       this.worker.postMessage(message);

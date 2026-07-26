@@ -1031,6 +1031,14 @@ async function handleMessage(msg: KataGoWorkerRequest): Promise<void> {
 
 self.onmessage = (ev: MessageEvent<KataGoWorkerRequest>) => {
   const msg = ev.data;
+  if (msg.type === 'katago:cancel_analyses') {
+    // Handled here, not on the queue — the queue may be blocked by the very
+    // search being canceled. Marking every group stale flips the running
+    // search's shouldAbort() and cancels anything queued behind it.
+    for (const group of latestAnalyzeByGroup.keys()) latestAnalyzeByGroup.set(group, -1);
+    interactiveToken++;
+    return;
+  }
   if (msg.type === 'katago:analyze') {
     const analysisGroup = msg.analysisGroup ?? 'background';
     latestAnalyzeByGroup.set(analysisGroup, msg.id);
