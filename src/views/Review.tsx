@@ -26,6 +26,20 @@ function uploadPlayerName(g: GameDoc): string | null {
 }
 const uploadChipKey = (name: string) => `up:${name}`;
 
+/** Download a game's SGF, injecting the display name as GN when the stored
+ * SGF lacks one — the file carries all metadata for use elsewhere. */
+function downloadSgf(game: GameDoc): void {
+  let sgf = game.sgf;
+  if (game.name && !/\bGN\[/.test(sgf)) {
+    sgf = sgf.replace('(;', `(;GN[${game.name.replace(/([\]\\])/g, '\\$1')}]`);
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([sgf], { type: 'application/x-go-sgf' }));
+  a.download = `${(game.name ?? '').replace(/[^\w\- ]+/g, '').trim() || game.id}.sgf`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 /** Display name for a game card: the stored name, else a source default. */
 function gameName(g: GameDoc): string {
   if (g.name) return g.name;
@@ -82,17 +96,32 @@ function GameCard({ game, outcome, onOpen, onDelete }: {
           ×
         </button>
       )}
+      <button
+        type="button"
+        className="game-card-del game-card-dl"
+        aria-label="Download SGF"
+        title="Download SGF"
+        onClick={(e) => { e.stopPropagation(); downloadSgf(game); }}
+      >
+        ⤓
+      </button>
       <div className="game-card-board">
         <Board stones={stones} displayOnly thumbnail />
       </div>
       <div className="game-card-meta">
-        <div className="game-card-name">{gameName(game)}</div>
+        <div className="game-card-title">
+          <span className="game-card-name">{gameName(game)}</span>
+          <span className="game-card-date">{shortDate(game.createdAt)}</span>
+        </div>
         <div className="game-card-players">
-          {info.playerBlack || 'Black'}{info.rankBlack && <> <span className="review-rank">[{info.rankBlack}]</span></>}{' '}vs{' '}
-          {info.playerWhite || 'White'}{info.rankWhite && <> <span className="review-rank">[{info.rankWhite}]</span></>}
+          <span className="gcp-name">{info.playerBlack || 'Black'}</span>
+          {info.rankBlack && <span className="review-rank">[{info.rankBlack}]</span>}
+          <span className="gcp-vs">vs</span>
+          <span className="gcp-name">{info.playerWhite || 'White'}</span>
+          {info.rankWhite && <span className="review-rank">[{info.rankWhite}]</span>}
         </div>
         <div className="game-card-sub">
-          {shortDate(game.createdAt)} · {moves.length} moves ·{' '}
+          {moves.length} moves ·{' '}
           <span className={outcome ? `game-result game-result--${outcome}` : undefined}>
             {resultLabel(game)}
           </span>
