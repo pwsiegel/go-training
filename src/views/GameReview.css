@@ -370,6 +370,7 @@
 }
 
 .gr-mv-preview:hover .gr-mv-preview-del,
+.gr-mv-var:hover .gr-mv-preview-del,
 .gr-mv-preview-del:focus-visible {
   max-width: 1.5rem;
   padding-right: 0.35rem;
@@ -377,6 +378,12 @@
 }
 
 .gr-mv-preview-del:hover { color: var(--error); }
+
+/* A variation move + its hover-revealed delete, mirroring the preview chips. */
+.gr-mv-var {
+  display: inline-flex;
+  align-items: center;
+}
 
 .gr-gear.active { color: var(--accent); border-color: var(--accent); }
 
