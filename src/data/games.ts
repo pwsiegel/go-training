@@ -9,14 +9,14 @@ import { db } from '../firebase';
 import { sgfInfo } from '../sgf';
 import type { GameDoc } from './model';
 
-/** Win/loss of a Fox game from the perspective of a set of the owner's own
- * account uids. Null when neither participant is one of "my" accounts, or the
- * SGF result isn't a plain Black/White win (e.g. void, unfinished). */
+/** Win/loss from the owner's perspective: the game's stored myColor (uploads,
+ * play-vs-KataGo) or a Fox participant uid in `myUids`. Null when the owner's
+ * side is unknown, or the SGF result isn't a plain Black/White win. */
 export function gameOutcome(game: GameDoc, myUids: Set<number>): 'win' | 'loss' | null {
-  const myColor =
-    game.blackUid != null && myUids.has(game.blackUid) ? 'B'
+  const myColor = game.myColor
+    ?? (game.blackUid != null && myUids.has(game.blackUid) ? 'B'
       : game.whiteUid != null && myUids.has(game.whiteUid) ? 'W'
-        : null;
+        : null);
   if (!myColor) return null;
   const winner = sgfInfo(game.sgf).result[0];
   if (winner !== 'B' && winner !== 'W') return null;

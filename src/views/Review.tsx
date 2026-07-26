@@ -6,7 +6,7 @@ import { deleteReviewsForGame } from '../data/reviews';
 import { listStudents } from '../data/links';
 import { foxAvailable, listFoxAccounts } from '../data/fox';
 import type { FoxAccountDoc, GameDoc, UserDoc } from '../data/model';
-import { movesFromSgf, sgfInfo } from '../sgf';
+import { movesFromSgf, setupStonesFromSgf, sgfInfo } from '../sgf';
 import { replay } from '../goRules';
 import { Board } from '../Board';
 import { Spinner } from '../Spinner';
@@ -17,6 +17,7 @@ import './Review.css';
 
 const LOCAL_AI = 'local-ai';
 const UPLOADED = 'uploaded';
+const ME = 'me';
 
 /** Display name for a game card: the stored name, else a source default. */
 function gameName(g: GameDoc): string {
@@ -51,7 +52,10 @@ function GameCard({ game, outcome, onOpen, onDelete }: {
   onDelete?: () => void;
 }) {
   const moves = useMemo(() => movesFromSgf(game.sgf), [game.sgf]);
-  const stones = useMemo(() => replay(moves.slice(0, 30)).stones, [moves]);
+  const stones = useMemo(
+    () => replay(moves.slice(0, 30), setupStonesFromSgf(game.sgf)).stones,
+    [moves, game.sgf],
+  );
   const info = sgfInfo(game.sgf);
   return (
     <div
@@ -146,7 +150,7 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
           setAccounts(a);
           setGames(own);
           setMyUids(new Set(a.filter((x) => x.isMine).map((x) => x.uid)));
-          setSelected(new Set([LOCAL_AI, UPLOADED, ...a.map((x) => String(x.uid))]));
+          setSelected(new Set([LOCAL_AI, UPLOADED, ME, ...a.map((x) => String(x.uid))]));
         })
         .catch(() => { if (active) setGames([]); });
       foxAvailable().then((ok) => { if (active) setFoxOk(ok); });
@@ -156,6 +160,7 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
 
   const hasLocalAi = useMemo(() => !!games?.some((g) => g.source === 'go-training'), [games]);
   const hasUploads = useMemo(() => !!games?.some((g) => g.source === 'upload'), [games]);
+  const hasMine = useMemo(() => !!games?.some((g) => g.source === 'upload' && g.myColor), [games]);
 
   // Student view: your Fox accounts + vs-KataGo + uploads. Teacher view: one
   // read-only "shared by <student>" chip per linked student.
@@ -164,8 +169,9 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
     const list = accounts.map((a) => ({ key: String(a.uid), label: a.username }));
     if (hasLocalAi) list.push({ key: LOCAL_AI, label: 'vs KataGo' });
     if (hasUploads) list.push({ key: UPLOADED, label: 'uploaded' });
+    if (hasMine) list.push({ key: ME, label: 'me' });
     return list;
-  }, [teacherMode, students, accounts, hasLocalAi, hasUploads]);
+  }, [teacherMode, students, accounts, hasLocalAi, hasUploads, hasMine]);
 
   const visible = useMemo(() => {
     if (!games) return [];
@@ -173,7 +179,7 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
       .filter((g) => {
         if (teacherMode) return selected.has(`student:${g.ownerUid}`);
         if (g.source === 'go-training') return selected.has(LOCAL_AI);
-        if (g.source === 'upload') return selected.has(UPLOADED);
+        if (g.source === 'upload') return selected.has(UPLOADED) || (!!g.myColor && selected.has(ME));
         return (g.blackUid != null && selected.has(String(g.blackUid)))
           || (g.whiteUid != null && selected.has(String(g.whiteUid)));
       })

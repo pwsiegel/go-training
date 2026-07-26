@@ -64,3 +64,32 @@
   justify-content: flex-end;
   margin-top: 0.4rem;
 }
+
+.upload-me-row {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  margin: 0.2rem 0 0.6rem;
+}
+
+.upload-me-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.upload-me-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.upload-field select {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}

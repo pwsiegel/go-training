@@ -1,7 +1,8 @@
 import { useMemo, useRef, useState } from 'react';
 import { saveGame } from '../data/games';
 import type { GameDoc } from '../data/model';
-import { mainlineMovesFromSgf, sgfInfo, toSgf } from '../sgf';
+import type { Color } from '../types';
+import { mainlineMovesFromSgf, setupStonesFromSgf, sgfInfo, standardHandicapStones, toSgf } from '../sgf';
 import './UploadGameModal.css';
 
 /** Paste (or pick a file of) SGF, adjust the metadata, save it as an
@@ -19,13 +20,23 @@ export function UploadGameModal({ ownerUid, onClose, onSaved }: {
   const [rankBlack, setRankBlack] = useState('');
   const [playerWhite, setPlayerWhite] = useState('');
   const [rankWhite, setRankWhite] = useState('');
+  const [winner, setWinner] = useState<'' | Color>('');
+  const [scoreText, setScoreText] = useState('');
+  const [rulesText, setRulesText] = useState('');
+  const [komiText, setKomiText] = useState('');
+  const [handicap, setHandicap] = useState(0);
+  const [myColor, setMyColor] = useState<Color | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
   const parsed = useMemo(() => {
     if (!sgfText.trim()) return null;
-    return { info: sgfInfo(sgfText), moves: mainlineMovesFromSgf(sgfText) };
+    return {
+      info: sgfInfo(sgfText),
+      moves: mainlineMovesFromSgf(sgfText),
+      setup: setupStonesFromSgf(sgfText),
+    };
   }, [sgfText]);
 
   const applySgf = (text: string) => {
@@ -38,6 +49,13 @@ export function UploadGameModal({ ownerUid, onClose, onSaved }: {
     setRankBlack(info.rankBlack);
     setPlayerWhite(info.playerWhite);
     setRankWhite(info.rankWhite);
+    const re = info.result.match(/^([BW])\+(.*)$/);
+    setWinner(re ? (re[1] as Color) : '');
+    setScoreText(re ? re[2] : '');
+    setRulesText(info.rules);
+    setKomiText(info.komi != null ? String(info.komi) : '');
+    const abCount = setupStonesFromSgf(text).filter((st) => st.color === 'B').length;
+    setHandicap(info.handicap ?? (abCount >= 2 ? abCount : 0));
   };
 
   const pickFile = async (file: File | undefined) => {
@@ -47,26 +65,42 @@ export function UploadGameModal({ ownerUid, onClose, onSaved }: {
 
   const problem = !parsed ? null
     : parsed.moves.length === 0 ? 'No moves found — is this an SGF game record?'
-      : parsed.info.hasSetup ? 'SGFs with setup stones (handicap placements, problems) aren’t supported yet.'
-        : parsed.info.boardSize != null && parsed.info.boardSize !== 19 ? `Only 19×19 games are supported (this is ${parsed.info.boardSize}×${parsed.info.boardSize}).`
-          : null;
+      : parsed.info.boardSize != null && parsed.info.boardSize !== 19 ? `Only 19×19 games are supported (this is ${parsed.info.boardSize}×${parsed.info.boardSize}).`
+        : null;
 
   const save = async () => {
     if (!parsed || problem) return;
     setSaving(true);
     setError('');
+    const komiVal = komiText.trim() === '' ? null : Number(komiText);
+    if (komiVal !== null && !Number.isFinite(komiVal)) {
+      setSaving(false);
+      setError('Komi must be a number.');
+      return;
+    }
     try {
       const { info, moves } = parsed;
+      // Winner + score compose RE ("B+R", "W+2.5"); no winner keeps the SGF's
+      // own result. Setup stones: the SGF's when they match the chosen
+      // handicap, else the standard hoshi placement.
+      const score = scoreText.trim().replace(/^r(es(ign)?)?$/i, 'R');
+      const result = winner ? `${winner}+${score}` : info.result;
+      const abCount = parsed.setup.filter((st) => st.color === 'B').length;
+      const setup = handicap >= 2
+        ? (abCount === handicap ? parsed.setup : standardHandicapStones(handicap))
+        : parsed.setup;
       const sgf = toSgf(moves, {
-        komi: info.komi ?? 7.5,
-        rules: info.rules || 'Chinese',
+        komi: komiVal,
+        rules: rulesText.trim(),
+        handicap,
+        setup,
         name: name.trim(),
         playerBlack: playerBlack.trim(),
         playerWhite: playerWhite.trim(),
         rankBlack: rankBlack.trim(),
         rankWhite: rankWhite.trim(),
         date: info.date,
-        result: info.result,
+        result,
       });
       const played = info.date ? Date.parse(info.date) : NaN;
       const game = await saveGame({
@@ -75,6 +109,7 @@ export function UploadGameModal({ ownerUid, onClose, onSaved }: {
         createdAt: Number.isFinite(played) ? played : Date.now(),
         sgf,
         ...(name.trim() ? { name: name.trim() } : {}),
+        ...(myColor ? { myColor } : {}),
       });
       onSaved(game);
     } catch (e) {
@@ -142,6 +177,53 @@ export function UploadGameModal({ ownerUid, onClose, onSaved }: {
             <span>Rank</span>
             <input value={rankWhite} onChange={(e) => setRankWhite(e.target.value)} placeholder="e.g. 5k" />
           </label>
+        </div>
+
+        <div className="upload-player-row">
+          <label className="upload-field">
+            <span>Who won</span>
+            <select value={winner} onChange={(e) => setWinner(e.target.value as '' | Color)}>
+              <option value="">—</option>
+              <option value="B">Black</option>
+              <option value="W">White</option>
+            </select>
+          </label>
+          <label className="upload-field">
+            <span>Score</span>
+            <input value={scoreText} onChange={(e) => setScoreText(e.target.value)} placeholder="e.g. 2.5 or R" />
+          </label>
+        </div>
+        <div className="upload-player-row">
+          <label className="upload-field">
+            <span>Ruleset</span>
+            <input value={rulesText} onChange={(e) => setRulesText(e.target.value)} placeholder="e.g. AGA" />
+          </label>
+          <label className="upload-field">
+            <span>Komi</span>
+            <input value={komiText} onChange={(e) => setKomiText(e.target.value)} placeholder="e.g. 7.5" />
+          </label>
+          <label className="upload-field">
+            <span>Handicap</span>
+            <select value={handicap} onChange={(e) => setHandicap(Number(e.target.value))}>
+              <option value={0}>None</option>
+              {[2, 3, 4, 5, 6, 7, 8, 9].map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
+        </div>
+
+        <div className="upload-me-row">
+          <span className="upload-me-label">You played</span>
+          {([['B', 'Black'], ['W', 'White'], [null, 'Neither']] as [Color | null, string][]).map(([v, label]) => (
+            <label key={label} className="upload-me-option">
+              <input
+                type="radio"
+                name="upload-me"
+                checked={myColor === v}
+                onChange={() => setMyColor(v)}
+              />
+              {label}
+            </label>
+          ))}
         </div>
 
         {problem && <p className="review-error">{problem}</p>}

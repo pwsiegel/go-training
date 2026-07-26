@@ -163,6 +163,7 @@ const netUrl = (model: AnalysisModel): Promise<string> => storageUrl(model.netPa
 export async function scoreTrajectory(args: {
   model: AnalysisModel;
   positions: Array<{ stones: Stone[]; previousStones?: Stone[]; previousPreviousStones?: Stone[]; moves: GameMove[]; toPlay: Color }>;
+  initialStones?: Stone[];   // setup stones (handicap) — the local backend rebuilds from these + moves
   komi?: number;
   chunk?: number;
   onChunk: (fromMove: number, blackScores: number[]) => void;
@@ -175,7 +176,7 @@ export async function scoreTrajectory(args: {
       if (args.signal?.aborted) return;
       const p = args.positions[i];
       try {
-        const lead = await valueOf(args.model, p.stones, p.toPlay, p.moves, args.komi, args.signal);
+        const lead = await valueOf(args.model, p.stones, p.toPlay, p.moves, args.komi, args.signal, args.initialStones);
         if (args.signal?.aborted) return;
         args.onChunk(i, [lead]);
       } catch {
@@ -349,6 +350,7 @@ export async function evalPlayedMove(args: AnalyzeArgs, analysis: WebAnalysis): 
       [...args.moves, { color: args.toPlay, x: nm.x, y: nm.y }],
       args.komi,
       args.signal,
+      args.initialStones,
     );
     const side = (s: number) => (args.toPlay === 'B' ? s : -s);
     const best = analysis.moves.length ? side(analysis.moves[0].scoreLead) : side(analysis.rootScoreLead);
@@ -361,11 +363,11 @@ export async function evalPlayedMove(args: AnalyzeArgs, analysis: WebAnalysis): 
 /** Black-perspective score of a position (a fast value estimate). */
 async function valueOf(
   model: AnalysisModel, stones: Stone[], toPlay: Color, moves: GameMove[],
-  komi: number | undefined, signal?: AbortSignal,
+  komi: number | undefined, signal?: AbortSignal, initialStones: Stone[] = [],
 ): Promise<number> {
   if (model.kind === 'local') {
     const a = await backendAnalyze({
-      initialStones: [],
+      initialStones,
       moves: moves.map((m) => ({ color: m.color, x: m.x, y: m.y })),
       initialPlayer: moves[0]?.color ?? 'B',
       toPlay,

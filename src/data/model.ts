@@ -121,7 +121,7 @@ export type GameDoc = {
   // Display name. Absent on older docs — the review list falls back by source
   // (e.g. "Fox game").
   name?: string;
-  // play vs KataGo only — absent on imported games
+  // play vs KataGo and uploads — the owner's side, when known
   myColor?: Color;
   rank?: string;                      // humanSLProfile, e.g. "rank_9k"
   rankLabel?: string;                 // "9 kyu"

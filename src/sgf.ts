@@ -10,8 +10,10 @@ const esc = (s: string) => s.replace(/([\]\\])/g, '\\$1');
 
 export type SgfMeta = {
   boardSize?: number;
-  komi?: number;
-  rules?: string;
+  komi?: number | null;   // null = omit the KM tag (unknown komi)
+  rules?: string;         // '' = omit the RU tag (unknown ruleset)
+  handicap?: number;      // HA (emitted when >= 2)
+  setup?: GameMove[];     // AB/AW placement stones (handicap or free setup)
   name?: string;        // GN
   playerBlack?: string;
   playerWhite?: string;
@@ -24,11 +26,19 @@ export type SgfMeta = {
 export function toSgf(moves: GameMove[], meta: SgfMeta = {}): string {
   const {
     boardSize = 19, komi = 7.5, rules = 'Chinese', name = '',
+    handicap = 0, setup = [],
     playerBlack = '', playerWhite = '', rankBlack = '', rankWhite = '',
     date = '', result = '',
   } = meta;
+  const ab = setup.filter((s) => s.color === 'B');
+  const aw = setup.filter((s) => s.color === 'W');
   const root = [
-    'GM[1]', 'FF[4]', `SZ[${boardSize}]`, `KM[${komi}]`, `RU[${esc(rules)}]`,
+    'GM[1]', 'FF[4]', `SZ[${boardSize}]`,
+    komi != null && `KM[${komi}]`,
+    rules && `RU[${esc(rules)}]`,
+    handicap >= 2 && `HA[${handicap}]`,
+    ab.length > 0 && `AB${ab.map((s) => `[${point(s.x, s.y)}]`).join('')}`,
+    aw.length > 0 && `AW${aw.map((s) => `[${point(s.x, s.y)}]`).join('')}`,
     name && `GN[${esc(name)}]`,
     playerBlack && `PB[${esc(playerBlack)}]`,
     playerWhite && `PW[${esc(playerWhite)}]`,
@@ -52,6 +62,7 @@ export type SgfInfo = {
   boardSize: number | null;   // SZ[] (null when absent)
   komi: number | null;        // KM[] (null when absent)
   rules: string;              // RU[] (empty when absent)
+  handicap: number | null;    // HA[] (null when absent)
   hasSetup: boolean;          // AB[]/AW[] present (handicap/problem setups)
 };
 
@@ -76,8 +87,39 @@ export function sgfInfo(sgf: string): SgfInfo {
     boardSize: num(prop('SZ')),
     komi: num(prop('KM')),
     rules: prop('RU'),
+    handicap: num(prop('HA')),
     hasSetup: /\bA[BW]\[/.test(sgf),
   };
+}
+
+/** Setup (placement) stones from an SGF's AB/AW properties — handicap stones
+ * or a free setup. Scans the whole text (values may repeat: AB[dd][pp]). */
+export function setupStonesFromSgf(sgf: string): GameMove[] {
+  const out: GameMove[] = [];
+  const re = /\bA([BW])((?:\s*\[[a-s][a-s]\])+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(sgf)) !== null) {
+    const color = m[1] as GameMove['color'];
+    for (const v of m[2].match(/\[[a-s][a-s]\]/g) ?? []) {
+      out.push({ color, x: v.charCodeAt(1) - A, y: v.charCodeAt(2) - A });
+    }
+  }
+  return out;
+}
+
+/** Standard 19x19 hoshi placement for an n-stone handicap (app coords). */
+export function standardHandicapStones(n: number): GameMove[] {
+  const pts: Record<number, [number, number][]> = {
+    2: [[15, 3], [3, 15]],
+    3: [[15, 3], [3, 15], [15, 15]],
+    4: [[15, 3], [3, 15], [15, 15], [3, 3]],
+    5: [[15, 3], [3, 15], [15, 15], [3, 3], [9, 9]],
+    6: [[15, 3], [3, 15], [15, 15], [3, 3], [3, 9], [15, 9]],
+    7: [[15, 3], [3, 15], [15, 15], [3, 3], [3, 9], [15, 9], [9, 9]],
+    8: [[15, 3], [3, 15], [15, 15], [3, 3], [3, 9], [15, 9], [9, 3], [9, 15]],
+    9: [[15, 3], [3, 15], [15, 15], [3, 3], [3, 9], [15, 9], [9, 3], [9, 15], [9, 9]],
+  };
+  return (pts[n] ?? []).map(([x, y]) => ({ color: 'B', x, y }));
 }
 
 /** Main-line coloured moves from an SGF (ignores setup stones, variations, and
