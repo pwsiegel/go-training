@@ -16,8 +16,15 @@ import { UploadGameModal } from './UploadGameModal';
 import './Review.css';
 
 const LOCAL_AI = 'local-ai';
-const UPLOADED = 'uploaded';
-const ME = 'me';
+
+/** The owner's player name on a marked upload (myColor set), for the name
+ * filter chips. Null when unmarked — those games are always shown. */
+function uploadPlayerName(g: GameDoc): string | null {
+  if (g.source !== 'upload' || !g.myColor) return null;
+  const info = sgfInfo(g.sgf);
+  return (g.myColor === 'B' ? info.playerBlack : info.playerWhite).trim() || 'me';
+}
+const uploadChipKey = (name: string) => `up:${name}`;
 
 /** Display name for a game card: the stored name, else a source default. */
 function gameName(g: GameDoc): string {
@@ -150,7 +157,11 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
           setAccounts(a);
           setGames(own);
           setMyUids(new Set(a.filter((x) => x.isMine).map((x) => x.uid)));
-          setSelected(new Set([LOCAL_AI, UPLOADED, ME, ...a.map((x) => String(x.uid))]));
+          setSelected(new Set([
+            LOCAL_AI,
+            ...a.map((x) => String(x.uid)),
+            ...own.map(uploadPlayerName).filter((n): n is string => !!n).map(uploadChipKey),
+          ]));
         })
         .catch(() => { if (active) setGames([]); });
       foxAvailable().then((ok) => { if (active) setFoxOk(ok); });
@@ -159,8 +170,14 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
   }, [user, teacherMode]);
 
   const hasLocalAi = useMemo(() => !!games?.some((g) => g.source === 'go-training'), [games]);
-  const hasUploads = useMemo(() => !!games?.some((g) => g.source === 'upload'), [games]);
-  const hasMine = useMemo(() => !!games?.some((g) => g.source === 'upload' && g.myColor), [games]);
+  const uploadNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const g of games ?? []) {
+      const n = uploadPlayerName(g);
+      if (n) names.add(n);
+    }
+    return [...names].sort();
+  }, [games]);
 
   // Student view: your Fox accounts + vs-KataGo + uploads. Teacher view: one
   // read-only "shared by <student>" chip per linked student.
@@ -168,10 +185,9 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
     if (teacherMode) return students.map((s) => ({ key: `student:${s.uid}`, label: `shared by ${s.displayName}` }));
     const list = accounts.map((a) => ({ key: String(a.uid), label: a.username }));
     if (hasLocalAi) list.push({ key: LOCAL_AI, label: 'vs KataGo' });
-    if (hasUploads) list.push({ key: UPLOADED, label: 'uploaded' });
-    if (hasMine) list.push({ key: ME, label: 'me' });
+    for (const n of uploadNames) list.push({ key: uploadChipKey(n), label: n });
     return list;
-  }, [teacherMode, students, accounts, hasLocalAi, hasUploads, hasMine]);
+  }, [teacherMode, students, accounts, hasLocalAi, uploadNames]);
 
   const visible = useMemo(() => {
     if (!games) return [];
@@ -179,7 +195,10 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
       .filter((g) => {
         if (teacherMode) return selected.has(`student:${g.ownerUid}`);
         if (g.source === 'go-training') return selected.has(LOCAL_AI);
-        if (g.source === 'upload') return selected.has(UPLOADED) || (!!g.myColor && selected.has(ME));
+        if (g.source === 'upload') {
+          const n = uploadPlayerName(g);
+          return n === null || selected.has(uploadChipKey(n));
+        }
         return (g.blackUid != null && selected.has(String(g.blackUid)))
           || (g.whiteUid != null && selected.has(String(g.whiteUid)));
       })
@@ -283,7 +302,8 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
           onSaved={(g) => {
             setUploading(false);
             setGames((gs) => dedupeById([g, ...(gs ?? [])]));
-            setSelected((sel) => new Set([...sel, UPLOADED]));
+            const n = uploadPlayerName(g);
+            if (n) setSelected((sel) => new Set([...sel, uploadChipKey(n)]));
             navigate(`/review/${g.id}`, { state: { from: backTo } });
           }}
         />
