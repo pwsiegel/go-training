@@ -13,6 +13,7 @@ import { Spinner } from '../Spinner';
 import { FilterChips } from '../FilterChips';
 import { ManagePlayersModal } from './ManagePlayersModal';
 import { UploadGameModal } from './UploadGameModal';
+import { EditGameModal } from './EditGameModal';
 import './Review.css';
 
 const LOCAL_AI = 'local-ai';
@@ -66,11 +67,12 @@ function resultLabel(g: GameDoc): string {
  * (e.g. a student's shared game) renders the card without the delete control.
  * `outcome` (win/loss for one of the viewer's own accounts) tints the border
  * and result. */
-function GameCard({ game, outcome, onOpen, onDelete }: {
+function GameCard({ game, outcome, onOpen, onDelete, onEdit }: {
   game: GameDoc;
   outcome: 'win' | 'loss' | null;
   onOpen: () => void;
   onDelete?: () => void;
+  onEdit?: () => void;
 }) {
   const moves = useMemo(() => movesFromSgf(game.sgf), [game.sgf]);
   const stones = useMemo(
@@ -105,6 +107,17 @@ function GameCard({ game, outcome, onOpen, onDelete }: {
       >
         ⤓
       </button>
+      {onEdit && (
+        <button
+          type="button"
+          className="game-card-del game-card-edit"
+          aria-label="Edit game details"
+          title="Edit game details"
+          onClick={(e) => { e.stopPropagation(); onEdit(); }}
+        >
+          ✎
+        </button>
+      )}
       <div className="game-card-board">
         <Board stones={stones} displayOnly thumbnail />
       </div>
@@ -147,6 +160,7 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
   const [foxOk, setFoxOk] = useState(false);
   const [managing, setManaging] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [editing, setEditing] = useState<GameDoc | null>(null);
   // Page lives in the URL so opening a game and coming back (button or browser
   // back) returns to the same page.
   const [searchParams, setSearchParams] = useSearchParams();
@@ -305,6 +319,7 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
               outcome={gameOutcome(g, myUids)}
               onOpen={() => navigate(`/review/${g.id}`, { state: { from: backTo } })}
               onDelete={teacherMode ? undefined : () => remove(g.id)}
+              onEdit={teacherMode ? undefined : () => setEditing(g)}
             />
           ))}
         </div>
@@ -324,6 +339,16 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
         </>
       )}
 
+      {editing && (
+        <EditGameModal
+          game={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(g) => {
+            setEditing(null);
+            setGames((gs) => (gs ?? []).map((x) => (x.id === g.id ? g : x)));
+          }}
+        />
+      )}
       {uploading && user && (
         <UploadGameModal
           ownerUid={user.uid}

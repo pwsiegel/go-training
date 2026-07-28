@@ -302,3 +302,8 @@
 .review-player-del {
   color: var(--error);
 }
+
+.game-card-edit {
+  right: 3.55rem;
+  font-size: 0.8rem;
+}

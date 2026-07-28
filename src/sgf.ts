@@ -185,3 +185,21 @@ export function mainlineMovesFromSgf(sgf: string): GameMove[] {
   }
   return out;
 }
+
+/** Set, replace, or (with '') remove root properties of an SGF in place —
+ * the move record is left byte-identical, unlike regenerating via toSgf
+ * (which would drop passes and variations). Values are escaped. */
+export function patchSgfMeta(
+  sgf: string,
+  tags: Partial<Record<'GN' | 'PB' | 'PW' | 'BR' | 'WR' | 'DT' | 'RE' | 'KM' | 'RU', string>>,
+): string {
+  let out = sgf;
+  for (const [key, raw] of Object.entries(tags)) {
+    if (raw === undefined) continue;
+    const value = raw.replace(/([\]\\])/g, '\\$1');
+    const re = new RegExp(`\\b${key}\\[[^\\]]*\\]`);
+    if (re.test(out)) out = out.replace(re, value === '' ? '' : `${key}[${value}]`);
+    else if (value !== '') out = out.replace('(;', `(;${key}[${value}]`);
+  }
+  return out;
+}

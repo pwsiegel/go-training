@@ -4,7 +4,7 @@
 //
 // Games are queried by owner and sorted client-side (no composite index needed).
 
-import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
+import { collection, deleteDoc, deleteField, doc, getDoc, getDocs, query, setDoc, updateDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { sgfInfo } from '../sgf';
 import type { GameDoc } from './model';
@@ -45,4 +45,11 @@ export async function getGame(id: string): Promise<GameDoc | null> {
 
 export async function deleteGame(id: string): Promise<void> {
   await deleteDoc(doc(db, 'games', id));
+}
+
+/** Patch fields of a game doc (metadata edits — never moves). */
+export async function updateGame(
+  id: string, patch: { [K in keyof GameDoc]?: GameDoc[K] | ReturnType<typeof deleteField> },
+): Promise<void> {
+  await updateDoc(doc(db, 'games', id), patch);
 }
