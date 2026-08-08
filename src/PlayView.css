@@ -48,11 +48,13 @@
   font-size: 1rem;
 }
 
+/* Fixed-width column so toolbar content changes (visits counter mounting,
+   "on"/"…" toggling) can never reflow — and visibly rescale — the board. */
 .play-tools {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  min-width: 10rem;
+  flex: 0 0 12rem;
 }
 
 .play-tool {
@@ -101,6 +103,7 @@
   .play-tools {
     flex-direction: row;
     flex-wrap: wrap;
+    flex: 0 0 auto; /* parent is a column here; the 12rem basis would set height */
     min-width: 0;
   }
   .play-tool {
