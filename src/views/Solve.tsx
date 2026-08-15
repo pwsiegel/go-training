@@ -7,7 +7,7 @@ import { Board } from '../Board';
 import { ProblemCard } from '../ProblemCard';
 import { PlayView } from '../PlayView';
 import { computeNumberedOverlay, type MovePoint } from '../numberedMoves';
-import { toStones, boundingViewport } from '../stones';
+import { toStones, solveViewport } from '../stones';
 import { listProblems, imageUrl } from '../data/library';
 import { saveAttempt, attemptsForProblem, verdictsByAttempt } from '../data/study';
 import { watchStuck, addStuck, removeStuck } from '../data/stuck';
@@ -106,7 +106,7 @@ export function Solve() {
 
   const stones = toStones(problem.stones);
   const overlay = computeNumberedOverlay(moves);
-  const viewport = boundingViewport([...stones, ...moves.map((m) => ({ x: m.x, y: m.y, color: 'B' as const }))], 5);
+  const viewport = solveViewport(stones, moves);
 
   const goToNav = (pos: number) => { const t = navItems[pos]; if (t) navigate(`/solve/${t.slug}/${t.id}`, navState); };
 

@@ -29,7 +29,9 @@
 }
 
 .solve-chains {
-  flex: 0 0 12rem; background: var(--warning-bg-soft); border: 1px solid var(--warning-line2);
+  /* 11.5rem: board (640px) + gap + this column fit inside .solve's 56rem at
+     full width, so the aside mounting doesn't squeeze — and rescale — the board. */
+  flex: 0 0 11.5rem; background: var(--warning-bg-soft); border: 1px solid var(--warning-line2);
   border-radius: 8px; padding: 0.75rem 0.9rem; color: var(--warning-x);
 }
 .solve-chains-title {
