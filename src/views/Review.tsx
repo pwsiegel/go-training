@@ -27,6 +27,30 @@ function uploadPlayerName(g: GameDoc): string | null {
 }
 const uploadChipKey = (name: string) => `up:${name}`;
 
+/** The filter-chip keys a game can be matched by: its Fox participants, the
+ * vs-KataGo tag, or the owner's name on a marked upload. A game with no keys
+ * (e.g. an unmarked upload) carries no tag and is always shown. */
+function gameChipKeys(g: GameDoc): string[] {
+  if (g.source === 'go-training') return [LOCAL_AI];
+  if (g.source === 'upload') {
+    const name = uploadPlayerName(g);
+    return name ? [uploadChipKey(name)] : [];
+  }
+  return [g.blackUid, g.whiteUid].filter((u): u is number => u != null).map(String);
+}
+
+/** Show everything: every chip a game or account could produce starts selected. */
+function defaultSelection(games: GameDoc[], accounts: FoxAccountDoc[]): Set<string> {
+  return new Set([
+    LOCAL_AI,
+    ...accounts.map((a) => String(a.uid)),
+    ...games.flatMap(gameChipKeys),
+  ]);
+}
+
+/** Games one owner shared — the teacher view's scope. */
+const gamesOf = (games: GameDoc[], ownerUid: string) => games.filter((g) => g.ownerUid === ownerUid);
+
 /** Download a game's SGF, injecting the display name as GN when the stored
  * SGF lacks one — the file carries all metadata for use elsewhere. */
 function downloadSgf(game: GameDoc): void {
@@ -50,6 +74,7 @@ function gameName(g: GameDoc): string {
 }
 const PAGE_SIZE = 32;
 const dedupeById = (gs: GameDoc[]) => Array.from(new Map(gs.map((g) => [g.id, g])).values());
+const dedupeByUid = (as: FoxAccountDoc[]) => Array.from(new Map(as.map((a) => [a.uid, a])).values());
 const scoreLabel = (lead: number) => `${lead >= 0 ? 'B' : 'W'}+${Math.abs(lead).toFixed(1)}`;
 const shortDate = (ms: number) =>
   new Date(ms).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
@@ -144,19 +169,25 @@ function GameCard({ game, outcome, onOpen, onDelete, onEdit }: {
   );
 }
 
-/** Game review browser. In student view it's your own games, filtered by your
- * Fox accounts + vs-KataGo, and deletable. In teacher view it's your students'
- * shared games only — one read-only "shared by <student>" filter each. */
+/** Game review browser. In student view it's your own games, deletable. In
+ * teacher view it's one student's shared games at a time, read-only, picked
+ * from a student chip row. Either way the list is scoped to a single owner and
+ * filtered by that owner's player-name chips (Fox accounts, vs-KataGo, upload
+ * names). */
 export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [games, setGames] = useState<GameDoc[] | null>(null);
-  const [accounts, setAccounts] = useState<FoxAccountDoc[]>([]);
+  // Tracked Fox accounts per owner: just the viewer in student view, one entry
+  // per linked student in teacher view.
+  const [accountsByOwner, setAccountsByOwner] = useState<Record<string, FoxAccountDoc[]>>({});
   // Fox uids of accounts the viewer owns — their own accounts (student view),
   // or, in teacher view, the "my account" accounts of every linked student.
   const [myUids, setMyUids] = useState<Set<number>>(new Set());
   const [students, setStudents] = useState<UserDoc[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Teacher view only: the one student whose games are on screen.
+  const [student, setStudent] = useState<string | null>(null);
   const [foxOk, setFoxOk] = useState(false);
   const [managing, setManaging] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -185,11 +216,15 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
             Promise.all(ss.map((s) => listFoxAccounts(s.uid).catch(() => []))),
           ]);
           if (!active) return;
+          const all = dedupeById(gameLists.flat());
+          const byOwner = Object.fromEntries(ss.map((s, i) => [s.uid, dedupeByUid(accountLists[i])]));
+          const first = ss[0]?.uid ?? null;
           setStudents(ss);
-          setAccounts([]);
-          setGames(dedupeById(gameLists.flat()));
+          setAccountsByOwner(byOwner);
+          setGames(all);
           setMyUids(new Set(accountLists.flat().filter((a) => a.isMine).map((a) => a.uid)));
-          setSelected(new Set(ss.map((s) => `student:${s.uid}`)));
+          setStudent(first);
+          setSelected(first ? defaultSelection(gamesOf(all, first), byOwner[first]) : new Set());
         })
         .catch(() => { if (active) setGames([]); });
     } else {
@@ -197,14 +232,10 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
         .then(([own, a]) => {
           if (!active) return;
           setStudents([]);
-          setAccounts(a);
+          setAccountsByOwner({ [uid]: a });
           setGames(own);
           setMyUids(new Set(a.filter((x) => x.isMine).map((x) => x.uid)));
-          setSelected(new Set([
-            LOCAL_AI,
-            ...a.map((x) => String(x.uid)),
-            ...own.map(uploadPlayerName).filter((n): n is string => !!n).map(uploadChipKey),
-          ]));
+          setSelected(defaultSelection(own, a));
         })
         .catch(() => { if (active) setGames([]); });
       foxAvailable().then((ok) => { if (active) setFoxOk(ok); });
@@ -212,41 +243,51 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
     return () => { active = false; };
   }, [user, teacherMode]);
 
-  const hasLocalAi = useMemo(() => !!games?.some((g) => g.source === 'go-training'), [games]);
+  // Everything below is scoped to one owner: the viewer, or the student whose
+  // chip is active. Teacher and student view then behave identically.
+  const scopeUid = teacherMode ? student : user?.uid ?? null;
+  const accounts = useMemo(
+    () => (scopeUid ? accountsByOwner[scopeUid] ?? [] : []),
+    [accountsByOwner, scopeUid],
+  );
+  const scoped = useMemo(
+    () => (scopeUid ? gamesOf(games ?? [], scopeUid) : []),
+    [games, scopeUid],
+  );
+
+  const hasLocalAi = useMemo(() => scoped.some((g) => g.source === 'go-training'), [scoped]);
   const uploadNames = useMemo(() => {
     const names = new Set<string>();
-    for (const g of games ?? []) {
+    for (const g of scoped) {
       const n = uploadPlayerName(g);
       if (n) names.add(n);
     }
     return [...names].sort();
-  }, [games]);
+  }, [scoped]);
 
-  // Student view: your Fox accounts + vs-KataGo + uploads. Teacher view: one
-  // read-only "shared by <student>" chip per linked student.
+  // Player-name chips: Fox accounts + vs-KataGo + upload names. A teacher sees
+  // the selected student's names — the same ones that student sees.
   const chips = useMemo(() => {
-    if (teacherMode) return students.map((s) => ({ key: `student:${s.uid}`, label: `shared by ${s.displayName}` }));
     const list = accounts.map((a) => ({ key: String(a.uid), label: a.username }));
     if (hasLocalAi) list.push({ key: LOCAL_AI, label: 'vs KataGo' });
     for (const n of uploadNames) list.push({ key: uploadChipKey(n), label: n });
     return list;
-  }, [teacherMode, students, accounts, hasLocalAi, uploadNames]);
+  }, [accounts, hasLocalAi, uploadNames]);
 
-  const visible = useMemo(() => {
-    if (!games) return [];
-    return games
+  const studentChips = useMemo(
+    () => (teacherMode ? students.map((s) => ({ key: s.uid, label: s.displayName })) : []),
+    [teacherMode, students],
+  );
+
+  const visible = useMemo(
+    () => scoped
       .filter((g) => {
-        if (teacherMode) return selected.has(`student:${g.ownerUid}`);
-        if (g.source === 'go-training') return selected.has(LOCAL_AI);
-        if (g.source === 'upload') {
-          const n = uploadPlayerName(g);
-          return n === null || selected.has(uploadChipKey(n));
-        }
-        return (g.blackUid != null && selected.has(String(g.blackUid)))
-          || (g.whiteUid != null && selected.has(String(g.whiteUid)));
+        const keys = gameChipKeys(g);
+        return keys.length === 0 || keys.some((k) => selected.has(k));
       })
-      .sort((a, b) => b.createdAt - a.createdAt);
-  }, [games, selected, teacherMode]);
+      .sort((a, b) => b.createdAt - a.createdAt),
+    [scoped, selected],
+  );
 
   const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
@@ -261,13 +302,21 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
     setPage(0);   // a filter change jumps back to the first page
   };
 
+  // One student at a time: picking another swaps in their games and their chips,
+  // all selected.
+  const pickStudent = (uid: string) => {
+    setStudent(uid);
+    setSelected(defaultSelection(gamesOf(games ?? [], uid), accountsByOwner[uid] ?? []));
+    setPage(0);
+  };
+
   // Reload after a Manage-players change (student view only); auto-select any
   // newly-added player.
   const reload = async () => {
     if (!user) return;
     const [own, a] = await Promise.all([listGames(user.uid), listFoxAccounts(user.uid)]);
     setGames(own);
-    setAccounts(a);
+    setAccountsByOwner({ [user.uid]: a });
     setMyUids(new Set(a.filter((x) => x.isMine).map((x) => x.uid)));
     setSelected((s) => new Set([...s, ...a.map((x) => String(x.uid))]));
   };
@@ -281,8 +330,11 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
 
   if (games === null) return <div className="center-screen"><Spinner /></div>;
 
+  const studentName = students.find((s) => s.uid === student)?.displayName ?? 'this student';
   const emptyMessage = teacherMode
-    ? (students.length === 0 ? 'No linked students yet.' : 'No games shared by the selected students.')
+    ? (students.length === 0 ? 'No linked students yet.'
+        : scoped.length === 0 ? `No games shared by ${studentName}.`
+          : 'No games match the selected filters.')
     : (accounts.length === 0 && !hasLocalAi
         ? (foxOk ? 'Add a player with “Manage players” to import games.' : 'No games yet.')
         : 'No games match the selected filters.');
@@ -305,6 +357,10 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
         )}
       </div>
 
+      {studentChips.length > 0 && (
+        <FilterChips chips={studentChips} selected={student ? new Set([student]) : new Set()}
+          onToggle={pickStudent} label="Student" />
+      )}
       <FilterChips chips={chips} selected={selected} onToggle={toggle} label="Filter games" />
 
       {visible.length === 0 ? (
