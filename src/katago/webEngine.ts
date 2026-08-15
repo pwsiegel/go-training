@@ -211,6 +211,22 @@ export async function scoreTrajectory(args: {
 
 const HUMAN_NET_PATH = 'katago/b18c384nbt-humanv0.bin.gz';
 
+/** Opponent strengths offered for human-like play — humanSL rank profiles. */
+export const HUMAN_RANKS: { value: string; label: string }[] = [
+  ...[18, 15, 12, 10, 8, 6, 5, 4, 3, 2, 1].map((k) => ({ value: `rank_${k}k`, label: `${k} kyu` })),
+  ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => ({ value: `rank_${d}d`, label: `${d} dan` })),
+];
+
+export const rankLabel = (rank: string) =>
+  HUMAN_RANKS.find((r) => r.value === rank)?.label ?? rank;
+
+/** Runtimes that can drive the human net: the browser always, the native
+ * backend only where it's reachable (dev). Same net either way. */
+export const HUMAN_ENGINES: { id: 'browser' | 'local'; name: string; runtime: string }[] = [
+  { id: 'browser', name: 'b18c384nbt-humanv0', runtime: 'WebGPU' },
+  { id: 'local', name: 'b18c384nbt-humanv0', runtime: 'Metal (native)' },
+];
+
 // Profile for the score readout: the strongest the meta-encoder supports.
 // Conditioning shifts the value head too, so reading the score at the play
 // rank makes weak-bot score estimates (and alert-mode gaps) unreliable.

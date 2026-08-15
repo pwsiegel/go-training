@@ -1,4 +1,16 @@
 .engine-settings { min-width: 18rem; }
+.engine-settings + .engine-settings {
+  margin-top: 0.9rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border-soft);
+}
+
+.es-section {
+  margin: 0 0 0.2rem;
+  padding: 0 0.35rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
 
 .es-head {
   font-size: 0.72rem;
@@ -82,4 +94,84 @@
   padding: 0 0.35rem 0.2rem;
   color: var(--text-faint);
   font-size: 0.72rem;
+}
+
+/* ---- play-settings controls ---- */
+
+.es-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.45rem 0.35rem 0.1rem;
+  font-size: 0.85rem;
+}
+
+.es-field > span { font-weight: 500; }
+
+.es-field > span small {
+  font-weight: 400;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.es-field select {
+  padding: 0.3rem 0.45rem;
+  font: inherit;
+  font-size: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-subtle);
+  color: var(--text);
+}
+
+.es-field input[type='range'] { accent-color: var(--accent); }
+
+.es-hint { color: var(--text-faint); font-size: 0.72rem; }
+
+.es-seg { display: flex; }
+
+.es-seg button {
+  flex: 1;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.es-seg button:not(:first-child) { border-left: none; }
+.es-seg button:first-child { border-radius: 4px 0 0 4px; }
+.es-seg button:last-child { border-radius: 0 4px 4px 0; }
+.es-seg button:hover { background: var(--bg-muted); }
+
+.es-seg button.active {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+
+.es-thresh {
+  display: block;
+  margin-top: 0.3rem;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.es-thresh input {
+  width: 3.5rem;
+  padding: 0.1rem 0.3rem;
+  font: inherit;
+  font-size: 0.78rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.es-thresh input[type='radio'] {
+  width: auto;
+  margin-right: 0.4rem;
+  accent-color: var(--accent);
 }

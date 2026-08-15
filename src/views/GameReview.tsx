@@ -1,21 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useParams, useLocation } from 'react-router-dom';
+import { Link, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { Board, type Annotation } from '../Board';
 import { playMove, replay } from '../goRules';
-import { movesFromSgf, setupStonesFromSgf, sgfInfo } from '../sgf';
-import { gameOutcome, getGame } from '../data/games';
+import { movesFromSgf, setupStonesFromSgf, sgfInfo, toSgf } from '../sgf';
+import { gameOutcome, getGame, saveGame } from '../data/games';
 import { listFoxAccounts } from '../data/fox';
 import { loadReview, newReviewId, saveReview } from '../data/reviews';
-import type { GameDoc, SavedNode } from '../data/model';
+import type { GameDoc, GameMove, PlayDefaults, SavedNode } from '../data/model';
 import type { Color, Stone } from '../types';
 import {
-  addMove, buildTree, depthOf, deserializeVariations, leafOf, movesTo, nodeAtDepth,
-  pathIds, pruneSubtree, serializeVariations, variationLines, type GameTree,
+  addMove, buildTree, depthOf, deserializeVariations, extendMainline, leafOf, movesTo,
+  nodeAtDepth, pathIds, pruneSubtree, serializeVariations, variationLines, type GameTree,
 } from '../variations';
-import { scoreTrajectory, type WebAnalysis } from '../katago/webEngine';
+import { genmoveBrowser, rankLabel, scoreTrajectory, type WebAnalysis } from '../katago/webEngine';
+import { genmove } from '../data/katago';
 import { useAnalysisSession, PONDER_TARGET } from '../katago/useAnalysisSession';
 import { useEngineHub } from '../katago/engineHub';
+import { useEngineLease } from '../katago/engineLease';
 import { Spinner } from '../Spinner';
 import { ReviewGraph } from '../ReviewGraph';
 import './GameReview.css';
@@ -26,6 +28,35 @@ const scoreLabel = (lead: number) => `${lead >= 0 ? 'B' : 'W'}+${Math.abs(lead).
 const other = (c: Color): Color => (c === 'B' ? 'W' : 'B');
 
 type Point = { move: number; lead: number };
+type Mode = 'play' | 'review';
+
+const OFFLINE_MSG = 'Could not run KataGo — your browser may not support WebGPU, or the model failed to load.';
+
+/** Whether a score trips the play-mode alert, from your side's perspective.
+ * `base` is the estimate `dropMoves` earlier — only the drop trigger needs it. */
+function alertFires(
+  play: PlayDefaults, myColor: Color, lead: number | null, base: number | null,
+): boolean {
+  if (play.scoreMode !== 'alert' || lead === null) return false;
+  const mine = myColor === 'B' ? lead : -lead;
+  if (play.alertKind === 'drop') {
+    if (base === null) return false;
+    return (myColor === 'B' ? base : -base) - mine >= (play.dropPoints ?? 5);
+  }
+  return -mine >= play.alertThreshold;
+}
+
+/** Most recent estimate at or before depth `d` on `leaf`'s line, from a
+ * node-keyed score map — the walk-back `scoreBefore` does over a drawn curve. */
+function leadAtOrBefore(
+  tree: GameTree, leaf: number, scores: Record<number, number>, d: number,
+): number | null {
+  for (let k = Math.max(0, d); k >= 0; k--) {
+    const v = scores[nodeAtDepth(tree, leaf, k)];
+    if (v !== undefined) return v;
+  }
+  return null;
+}
 
 /** Most recent recorded estimate at or before `move`, else null. */
 function scoreBefore(points: Point[], move: number): number | null {
@@ -36,30 +67,46 @@ function scoreBefore(points: Point[], move: number): number | null {
   return best;
 }
 
-export function GameReview() {
+/** The board surface, in two modes. Review: step the game, branch variations,
+ * analyze. Play: the human-like net answers your moves at the leaf of whatever
+ * line you're on — so a game you play from a reviewed position is just another
+ * variation of it. `fresh` starts from an empty board (the /play entry), where
+ * the first line you play becomes the game's mainline and Save persists it. */
+export function GameReview({ fresh = false }: { fresh?: boolean }) {
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
-  const { user } = useAuth();
-  // A just-played game handed straight to review without saving (router state).
-  const previewGame = (location.state as { game?: GameDoc } | null)?.game;
+  const navigate = useNavigate();
+  const { user, profile } = useAuth();
   // Where "← Games" returns — the games-list page you came from, else the list.
   const backTo = (location.state as { from?: string } | null)?.from ?? '/review';
   const [loaded, setLoaded] = useState<{ id: string; game: GameDoc | null } | null>(null);
   const [myUids, setMyUids] = useState<Set<number>>(new Set());
   const [cursor, setCursor] = useState(0);
-  const [analyzeOn, setAnalyzeOn] = useState(false);
-  const { model, visits, batchOverride, engineReady, leaseStatus } = useEngineHub();
+  // Analysis is on whenever you're in review mode; play mode never analyzes.
+  const [mode, setMode] = useState<Mode>(fresh ? 'play' : 'review');
+  const [analyzeOn, setAnalyzeOn] = useState(true);
+  const { model, visits, batchOverride, engineReady, leaseStatus, play, openSettings } = useEngineHub();
+  // Play mode: the side you're taking, the human net's own score estimates
+  // (keyed by node, like analyzedScores), and the alert-mode reveal.
+  const [myColor, setMyColor] = useState<Color>('B');
+  const [playScores, setPlayScores] = useState<Record<number, number>>({});
+  const [alerted, setAlerted] = useState(false);
+  const [replyAt, setReplyAt] = useState<number | null>(null);
+  const [offline, setOffline] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   // Pondering raises the session's search target to "effectively forever";
   // the same search just keeps deepening.
   const [ponder, setPonder] = useState(false);
   // Live score estimates, keyed by tree node id (not move depth) so they survive
   // line switches and a variation reuses the mainline's cached prefix.
   const [analyzedScores, setAnalyzedScores] = useState<Record<number, number>>({});
-  // Full per-position KataGo output, keyed `node:model:visits`, so scrubbing back
-  // to a seen position is instant. Cleared on Rerun and on game change.
-  const analysisCacheRef = useRef<Map<string, WebAnalysis>>(new Map());
-  // Settings signature the cached mainline trajectory was computed for — null
-  // until it runs, so it runs once per game and thereafter only on Rerun.
+  // Full per-position KataGo output, keyed `node:model`, so scrubbing back to a
+  // seen position is instant. Cleared on Rerun and on game change.
+  const [analysisCache, setAnalysisCache] = useState<Map<string, WebAnalysis>>(() => new Map());
+  // Settings signature the cached trajectory was computed for — null until it
+  // runs, and reset whenever the curve is recomputed from scratch.
   const [trajFor, setTrajFor] = useState<string | null>(null);
   const [trajRunning, setTrajRunning] = useState(false);
   const trajRanRef = useRef(false);          // gate (non-reactive, avoids self-abort)
@@ -69,6 +116,7 @@ export function GameReview() {
   // `reviews/{reviewId}` (owner-only) via a debounced, fire-and-forget writer.
   const [tree, setTree] = useState<GameTree | null>(null);
   const [line, setLine] = useState(0);
+  const lineRef = useRef<{ moves: GameMove[]; nodeIds: number[] } | null>(null);
   const reviewIdRef = useRef<string | null>(null);
   const reviewCreatedRef = useRef(0);
   const lastSavedRef = useRef('[]');   // JSON of the last-persisted nodes
@@ -104,18 +152,28 @@ export function GameReview() {
     bodyObs.current = ro;
   }, []);
 
-
   useEffect(() => {
-    if (previewGame) return;
+    if (fresh) return;
     let active = true;
     getGame(id ?? '')
       .then((g) => { if (active) setLoaded({ id: id ?? '', game: g }); })
       .catch(() => { if (active) setLoaded({ id: id ?? '', game: null }); });   // denied / missing → "not found"
     return () => { active = false; };
-  }, [id, previewGame]);
+  }, [id, fresh]);
 
-  const loading = !previewGame && (!loaded || loaded.id !== id);
-  const game = previewGame ?? (loading ? null : loaded?.game ?? null);
+  // A game being played from an empty board: a real GameDoc shape with no id,
+  // so every downstream memo works unchanged. Save turns it into a stored game.
+  const [freshGame] = useState<GameDoc | null>(() => (fresh
+    ? {
+        id: 'new', ownerUid: '', source: 'go-training', createdAt: Date.now(),
+        sgf: toSgf([], { komi: 7.5, rules: 'Chinese' }),
+      } satisfies GameDoc
+    : null));
+
+  const loading = !fresh && (!loaded || loaded.id !== id);
+  // A fresh game has no id of its own, so there is nothing to persist against
+  // until it is saved.
+  const game = freshGame ?? (loading ? null : loaded?.game ?? null);
   const mainlineMoves = useMemo(() => (game ? movesFromSgf(game.sgf) : []), [game]);
   // Setup (handicap) stones seed every board reconstruction and analysis.
   const setup = useMemo(() => (game ? setupStonesFromSgf(game.sgf) : []), [game]);
@@ -141,14 +199,12 @@ export function GameReview() {
     setLine(t.mainlineLeafId);
     setCursor(mainlineMoves.length);
     setAnalyzedScores({});
+    setAnalysisCache(new Map());
     setTrajFor(null);
   }
 
   // Reset per-game refs for a newly-shown game (refs can't be set during render).
-  useEffect(() => {
-    trajRanRef.current = false;
-    analysisCacheRef.current.clear();
-  }, [game]);
+  useEffect(() => { trajRanRef.current = false; }, [game]);
 
   // Write any pending variation edit now (debounce fire, unmount, game switch).
   const flush = useCallback(() => {
@@ -161,14 +217,14 @@ export function GameReview() {
     saveReview({
       id: reviewIdRef.current, ownerUid: d.ownerUid, gameId: d.gameId,
       nodes: d.nodes, createdAt: reviewCreatedRef.current, updatedAt: Date.now(),
-    }).catch(() => { lastSavedRef.current = ' '; /* force a retry on the next edit */ });
+    }).catch(() => { lastSavedRef.current = 'retry'; /* never equals real JSON — retries on the next edit */ });
   }, []);
 
   // Load the owner's saved variations for this game, splicing them into the
-  // mainline tree. Flush any pending write before switching games. Skipped for
-  // preview (just-played, unsaved) games — those stay session-only.
+  // mainline tree. Flush any pending write before switching games. Skipped
+  // while the game is unsaved — it has no id to hang a review on.
   useEffect(() => {
-    if (previewGame || !user || !game) return;
+    if (fresh || !user || !game) return;
     let active = true;
     const ownerUid = user.uid;
     const gameId = game.id;
@@ -186,18 +242,18 @@ export function GameReview() {
       })
       .catch(() => { /* keep the session-only tree on failure */ });
     return () => { active = false; flush(); };
-  }, [previewGame, user, game, mainlineMoves, flush]);
+  }, [fresh, user, game, mainlineMoves, flush]);
 
   // Debounce a persist whenever the tree gains/loses variation nodes.
   useEffect(() => {
-    if (previewGame || !user || !game || !tree) return;
+    if (fresh || !user || !game || !tree) return;
     const nodes = serializeVariations(tree);
     const json = JSON.stringify(nodes);
     if (json === lastSavedRef.current) { dirtyRef.current = null; return; }
     dirtyRef.current = { json, nodes, gameId: game.id, ownerUid: user.uid };
     if (saveTimerRef.current != null) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = window.setTimeout(flush, 1000);
-  }, [tree, previewGame, user, game, flush]);
+  }, [tree, fresh, user, game, flush]);
 
   // Flush a pending write when leaving the page.
   useEffect(() => flush, [flush]);
@@ -207,6 +263,9 @@ export function GameReview() {
   const lineNodeIds = useMemo(() => (tree ? pathIds(tree, line) : []), [tree, line]);
   const mainNodeIds = useMemo(() => (tree ? pathIds(tree, tree.mainlineLeafId) : []), [tree]);
   const lines = useMemo(() => (tree ? variationLines(tree) : []), [tree]);
+
+  // What the score trajectory analyzes — kept in a ref so it isn't a dependency.
+  useEffect(() => { lineRef.current = { moves: lineMoves, nodeIds: lineNodeIds }; }, [lineMoves, lineNodeIds]);
   const total = lineMoves.length;
   const onMainline = !!tree && line === tree.mainlineLeafId;
   // Where the current line leaves the mainline (move number after which it
@@ -218,19 +277,24 @@ export function GameReview() {
   }, [tree, lineNodeIds, onMainline]);
 
   // Score curve for the current line: each depth's node from the (node-keyed)
-  // cache, backfilled with recorded mainline scores. The shared prefix of a
-  // variation therefore comes straight from the cached mainline analysis.
+  // caches, so the shared prefix of a variation comes straight from the analysis
+  // already done on the line it branched from.
   const points = useMemo<Point[]>(() => {
     if (!tree) return [];
     const out: Point[] = [];
     for (let i = 0; i <= total; i++) {
       const node = lineNodeIds[i];
-      let lead: number | undefined = analyzedScores[node];
+      // Prefer the mode's own estimator, then fall back: a line played out keeps
+      // the analyzed prefix behind it, and a reviewed line keeps the estimates
+      // recorded while it was played.
+      let lead: number | undefined = mode === 'play'
+        ? playScores[node] ?? analyzedScores[node]
+        : analyzedScores[node] ?? playScores[node];
       if (lead === undefined && tree.nodes[node]?.mainline) lead = game?.scoreAt?.[String(i)];
       if (lead !== undefined) out.push({ move: i, lead });
     }
     return out;
-  }, [tree, lineNodeIds, total, analyzedScores, game]);
+  }, [tree, lineNodeIds, total, mode, playScores, analyzedScores, game]);
 
   const shown = useMemo(() => replay(lineMoves.slice(0, cursor), setup), [lineMoves, cursor, setup]);
 
@@ -255,6 +319,7 @@ export function GameReview() {
   // prefix, so stepping forward again follows the game line, as if a Game-
   // column move had been clicked.
   const stepTo = useCallback((m: number) => {
+    setReplyAt(null);   // navigating is not playing — the opponent stays put
     const c = Math.max(0, Math.min(total, m));
     if (tree && line !== tree.mainlineLeafId && c <= branchPoint) setLine(tree.mainlineLeafId);
     setCursor(c);
@@ -276,6 +341,98 @@ export function GameReview() {
       : cursor > 0 ? other(lineMoves[cursor - 1].color)
         : 'B';
 
+  // Play (or re-walk) a move at the cursor — branching a variation when it
+  // departs from the line, or advancing when it matches an existing child.
+  // Shared by the board and by the opponent's replies.
+  const commitMove = useCallback((x: number, y: number, color: Color): number | null => {
+    if (!tree) return null;
+    const legal = playMove(shown.stones, color, x, y, shown.koPoint);
+    if (!legal.ok) return null;
+    const branchNode = nodeAtDepth(tree, line, cursor);
+    // An unsaved game has no source SGF, so the first line played is the game
+    // itself: extend the mainline. Everywhere else a move branches.
+    const { tree: next, childId } = fresh && branchNode === tree.mainlineLeafId
+      ? extendMainline(tree, { color, x, y })
+      : addMove(tree, branchNode, { color, x, y });
+    const stayOnLine = lineNodeIds.includes(childId);
+    // Branching = departing from a line that already continued past here.
+    // Extending the leaf of the line you're on is not branching.
+    const branched = !stayOnLine && tree.nodes[branchNode].children.length > 0;
+    setTree(next);
+    setLine(stayOnLine ? line : leafOf(next, childId));
+    setCursor(depthOf(next, childId));
+    // Committing to a new line hides the alert graph until you fall behind again.
+    if (branched) setAlerted(false);
+    return childId;
+  }, [tree, shown, line, cursor, lineNodeIds, fresh]);
+
+  // ---- play mode ----
+  // The opponent answers a move you *played*, never a position you merely
+  // navigated to: `replyAt` is the node it owes a reply at, set when you play
+  // (or hand it your colour) and cleared by any navigation. Re-walking a move
+  // the game already contains is still playing it, so it counts.
+  const currentNode = tree ? nodeAtDepth(tree, line, cursor) : -1;
+  const atLeaf = cursor === total;
+  const playEngine = play.engine ?? 'browser';
+  const aiTurn = mode === 'play' && !offline && toPlay !== myColor && currentNode === replyAt;
+  const playLease = useEngineLease(mode === 'play' && playEngine === 'browser');
+
+  useEffect(() => {
+    if (!aiTurn || !tree) return;
+    if (playEngine === 'browser' && playLease !== 'active') return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const ctrl = new AbortController();
+    const startedAt = Date.now();
+    const atNode = currentNode;
+    const movesSoFar = lineMoves.slice(0, cursor);
+    const gen = playEngine === 'local'
+      ? genmove({
+          initialStones: setup, moves: movesSoFar, initialPlayer: movesSoFar[0]?.color ?? 'B',
+          rank: play.rank, temperature: play.temperature, signal: ctrl.signal,
+        }).then((r) => ({ move: r.move, scoreLead: r.root.score_lead }))
+      : genmoveBrowser({
+          stones: shown.stones,
+          previousStones: cursor > 0 ? replay(lineMoves.slice(0, cursor - 1), setup).stones : undefined,
+          moves: movesSoFar,
+          toPlay,
+          rank: play.rank,
+          temperature: play.temperature,
+          komi: 7.5,
+          koPoint: shown.koPoint,
+        });
+    gen
+      .then((res) => {
+        if (!active) return;
+        // Minimum "think time" so the reply doesn't snap in instantly.
+        const wait = Math.max(0, play.moveDelay * 1000 - (Date.now() - startedAt));
+        timer = setTimeout(() => {
+          if (!active) return;
+          setPlayScores((s) => ({ ...s, [atNode]: res.scoreLead }));
+          setOffline(false);
+          // Falling behind reveals the graph, and it stays up while you look
+          // around — until you commit to a new line (see commitMove).
+          const base = leadAtOrBefore(tree, line, playScores, cursor - (play.dropMoves ?? 10));
+          if (alertFires(play, myColor, res.scoreLead, base)) setAlerted(true);
+          if (res.move) commitMove(res.move.x, res.move.y, toPlay);
+        }, wait);
+      })
+      .catch(() => { if (active && !ctrl.signal.aborted) setOffline(true); });
+    return () => { active = false; ctrl.abort(); if (timer) clearTimeout(timer); };
+  }, [aiTurn, tree, line, cursor, currentNode, lineMoves, shown, setup, toPlay, playEngine,
+    playLease, play, myColor, playScores, retryToken, commitMove]);
+
+  // Score from your perspective at the cursor (positive = you're ahead), and the
+  // numbers the alert banner quotes: an absolute deficit, or points lost recently.
+  const cursorLead = scoreBefore(points, cursor);
+  const userLead = cursorLead === null ? null : (myColor === 'B' ? cursorLead : -cursorLead);
+  const dropMoves = play.dropMoves ?? 10;
+  const baseLead = scoreBefore(points, Math.max(0, cursor - dropMoves));
+  const baseUserLead = baseLead === null ? null : (myColor === 'B' ? baseLead : -baseLead);
+  const behindBy = userLead === null ? null : -userLead;
+  const droppedBy = userLead === null || baseUserLead === null ? null : baseUserLead - userLead;
+  const alerting = mode === 'play' && alertFires(play, myColor, cursorLead, baseLead);
+
   // Session analysis of the current position (opt-in): one streaming search
   // per position; snapshots arrive as it deepens, and the ponder toggle raises
   // the target so the same search keeps going.
@@ -285,8 +442,8 @@ export function GameReview() {
     const forNode = nodeAtDepth(tree, line, cursor);
     const childStones = nextMove ? replay(lineMoves.slice(0, cursor + 1), setup).stones : null;
     return {
-      positionId: `${id}:${line}:${cursor}:${model.id}`,
-      parentPositionId: cursor > 0 ? `${id}:${line}:${cursor - 1}:${model.id}` : undefined,
+      positionId: `${id ?? 'new'}:${line}:${cursor}:${model.id}`,
+      parentPositionId: cursor > 0 ? `${id ?? 'new'}:${line}:${cursor - 1}:${model.id}` : undefined,
       stones: shown.stones,
       previousStones: cursor > 0 ? replay(lineMoves.slice(0, cursor - 1), setup).stones : undefined,
       previousPreviousStones: cursor > 1 ? replay(lineMoves.slice(0, cursor - 2), setup).stones : undefined,
@@ -294,32 +451,32 @@ export function GameReview() {
       moves: lineMoves.slice(0, cursor),
       toPlay,
       evalNext: nextMove && childStones ? { move: { x: nextMove.x, y: nextMove.y }, stones: childStones } : null,
+      nodeId: forNode,
       nodeKey: `${forNode}:${model.id}`,
     };
-  }, [game, tree, id, line, cursor, model.id, shown, toPlay, lineMoves, nextMove]);
+  }, [game, tree, id, line, cursor, model.id, shown, setup, toPlay, lineMoves, nextMove]);
 
+  const analyzing = mode === 'review' && analyzeOn;
   const session = useAnalysisSession({
-    enabled: analyzeOn && engineReady && !!sessionPosition,
+    enabled: analyzing && engineReady && !!sessionPosition,
     model,
     position: sessionPosition,
     targetVisits: ponder ? PONDER_TARGET : visits,
     batchSize: batchOverride ?? undefined,
+    onSnapshot: (a, pos) => {
+      if (pos.nodeKey) {
+        setAnalysisCache((m) => {
+          const prev = m.get(pos.nodeKey!);
+          if (prev && prev.rootVisits > a.rootVisits) return m;
+          return new Map(m).set(pos.nodeKey!, a);
+        });
+      }
+      const node = pos.nodeId;
+      if (node !== undefined) {
+        setAnalyzedScores((s) => (s[node] === a.rootScoreLead ? s : { ...s, [node]: a.rootScoreLead }));
+      }
+    },
   });
-
-  // Snapshot side-effects: remember the deepest analysis per node (instant
-  // scrub-back display) and feed the score into the graph.
-  useEffect(() => {
-    if (!session.snapshot || !sessionPosition) return;
-    const key = sessionPosition.nodeKey;
-    const prev = analysisCacheRef.current.get(key);
-    if (!prev || session.snapshot.rootVisits >= prev.rootVisits) {
-      analysisCacheRef.current.set(key, session.snapshot);
-    }
-    const forNode = nodeAtDepth(tree!, line, cursor);
-    setAnalyzedScores((s) =>
-      s[forNode] === session.snapshot!.rootScoreLead ? s : { ...s, [forNode]: session.snapshot!.rootScoreLead });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.snapshot]);
 
   // WebGPU can't allocate this model/position on some GPUs — point at the
   // lighter model / batch setting rather than surfacing the raw GPU error.
@@ -329,25 +486,30 @@ export function GameReview() {
       : session.error)
     : '';
 
-  // Full-game score curve over the (stable) mainline. Runs once per game and
-  // fills the node-keyed cache; branching a variation can't abort it (it doesn't
-  // depend on the tree), and Rerun re-triggers it from any line. A mainline node's
-  // id equals its depth (see buildTree), so scores are keyed by depth directly.
+  // Score curve over the whole line on screen, filling the node-keyed cache.
+  // Runs when review mode is entered and on Rerun; branching a variation can't
+  // abort a running pass, because the line it walks is read from a ref rather
+  // than tracked as a dependency.
   const trajSig = `${model.id}:${visits}`;
   useEffect(() => {
-    if (!analyzeOn || !game || !engineReady) return;
-    if (trajRanRef.current) return;   // ran once this game; settings changes use Rerun
+    if (!analyzing || !game || !engineReady) return;
+    if (trajRanRef.current) return;   // already covered this line; re-armed by Rerun
     trajRanRef.current = true;
     setTrajFor(trajSig);
     setTrajRunning(true);
     let active = true;
     const ctrl = new AbortController();
-    const mlTotal = mainlineMoves.length;
+    // The line on screen — the game's mainline until you branch off it, and the
+    // line you played when that's what you're looking at. Read through the ref
+    // so the tree isn't a dependency: branching must not abort a running pass.
+    const passMoves = lineRef.current?.moves ?? mainlineMoves;
+    const passNodes = lineRef.current?.nodeIds ?? mainlineMoves.map((_, k) => k + 1);
+    const passTotal = passMoves.length;
     const boards: Stone[][] = [setup.map((st) => ({ x: st.x, y: st.y, color: st.color }))];
     let stones: Stone[] = boards[0];
     let ko: { x: number; y: number } | null = null;
-    for (let k = 0; k < mlTotal; k++) {
-      const mv = mainlineMoves[k];
+    for (let k = 0; k < passTotal; k++) {
+      const mv = passMoves[k];
       if (mv.x < 0 || mv.y < 0) { boards.push(stones); continue; } // pass
       const r = playMove(stones, mv.color, mv.x, mv.y, ko);
       if (!r.ok) { boards.push(stones); continue; }
@@ -358,8 +520,8 @@ export function GameReview() {
       stones: b,
       previousStones: k > 0 ? boards[k - 1] : undefined,
       previousPreviousStones: k > 1 ? boards[k - 2] : undefined,
-      moves: mainlineMoves.slice(0, k),
-      toPlay: (k < mlTotal ? mainlineMoves[k].color : k > 0 ? other(mainlineMoves[k - 1].color) : 'B') as Color,
+      moves: passMoves.slice(0, k),
+      toPlay: (k < passTotal ? passMoves[k].color : k > 0 ? other(passMoves[k - 1].color) : 'B') as Color,
     }));
     scoreTrajectory({
       model,
@@ -373,7 +535,10 @@ export function GameReview() {
       onChunk: (from, scores) => {
         setAnalyzedScores((s) => {
           const next = { ...s };
-          scores.forEach((v, j) => { next[from + j] = v; });   // mainline node id === depth
+          scores.forEach((v, j) => {
+            const node = passNodes[from + j];
+            if (node !== undefined) next[node] = v;
+          });
           return next;
         });
       },
@@ -382,7 +547,7 @@ export function GameReview() {
       .catch(() => { trajRanRef.current = false; /* aborted / engine error — allow a later run */ })
       .finally(() => { if (active) setTrajRunning(false); });
     return () => { active = false; ctrl.abort(); };
-  }, [analyzeOn, engineReady, game, model, visits, mainlineMoves, batchOverride, rerunToken, trajSig]);
+  }, [analyzing, engineReady, game, model, visits, mainlineMoves, setup, batchOverride, rerunToken, trajSig]);
 
   if (loading) return <div className="center-screen"><Spinner /></div>;
   if (!game || !tree) {
@@ -394,19 +559,80 @@ export function GameReview() {
     );
   }
 
-  const seek = (m: number) => setCursor(Math.max(0, Math.min(total, m)));
+  const seek = (m: number) => { setReplyAt(null); setCursor(Math.max(0, Math.min(total, m))); };
 
-  // Play (or re-walk) a move at the cursor — branching a variation when it
-  // departs from the line, or advancing when it matches an existing child.
-  const playAt = (x: number, y: number) => {
-    const legal = playMove(shown.stones, toPlay, x, y, shown.koPoint);
-    if (!legal.ok) return;
-    const branchNode = nodeAtDepth(tree, line, cursor);
-    const { tree: next, childId } = addMove(tree, branchNode, { color: toPlay, x, y });
-    const stayOnLine = lineNodeIds.includes(childId);
-    setTree(next);
-    setLine(stayOnLine ? line : leafOf(next, childId));
-    setCursor(depthOf(next, childId));
+  // Switching modes never moves the board — you keep the position you're on.
+  // Review always arrives with the AI on; play never analyzes.
+  const enterMode = (m: Mode) => {
+    setMode(m);
+    setOffline(false);
+    setReplyAt(null);
+    if (m === 'review') {
+      setAnalyzeOn(true);
+      rerun();   // the line has moved on since the last pass — recompute it
+    }
+    else setMyColor(toPlay);   // you take the side to move where you entered
+  };
+
+  // In play mode the board is yours alone; in review either colour can be played.
+  const boardPlay = (x: number, y: number) => {
+    if (mode === 'play' && toPlay !== myColor) return;
+    const child = commitMove(x, y, toPlay);
+    if (mode === 'play' && child !== null) setReplyAt(child);
+  };
+
+  // Persist a game played from an empty board: the mainline becomes the game,
+  // any branches off it become its variations, and the view moves to the saved
+  // game so everything from there on auto-persists.
+  const saveFresh = async () => {
+    if (!user || !fresh || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const mainNodes = pathIds(tree, tree.mainlineLeafId);
+      const moves = movesTo(tree, tree.mainlineLeafId);
+      const scoreAt: Record<string, number> = {};
+      mainNodes.forEach((nid, depth) => {
+        if (playScores[nid] !== undefined) scoreAt[String(depth)] = playScores[nid];
+      });
+      const rankShort = play.rank.replace('rank_', '');
+      const black = myColor === 'B';
+      const myName = profile?.displayName || 'Me';
+      const oppName = 'Human-like KataGo';
+      const createdAt = Date.now();
+      const saved = await saveGame({
+        ownerUid: user.uid,
+        source: 'go-training',
+        createdAt,
+        myColor,
+        rank: play.rank,
+        rankLabel: rankLabel(play.rank),
+        temperature: play.temperature,
+        sgf: toSgf(moves, {
+          komi: 7.5,
+          rules: 'Chinese',
+          playerBlack: black ? myName : oppName,
+          playerWhite: black ? oppName : myName,
+          rankBlack: black ? '?' : rankShort,
+          rankWhite: black ? rankShort : '?',
+          date: new Date(createdAt).toISOString().slice(0, 10),
+        }),
+        scoreAt,
+        moveCount: moves.length,
+        finalScore: leadAtOrBefore(tree, tree.mainlineLeafId, playScores, moves.length),
+      });
+      const nodes = serializeVariations(tree);
+      if (nodes.length) {
+        await saveReview({
+          id: newReviewId(), ownerUid: user.uid, gameId: saved.id,
+          nodes, createdAt, updatedAt: createdAt,
+        });
+      }
+      navigate(`/review/${saved.id}`, { replace: true });
+    } catch {
+      setSaveError('Could not save the game.');
+      setSaving(false);
+    }
   };
 
   // Delete a variation subtree (a chip, or a variation move onward). If the
@@ -422,10 +648,11 @@ export function GameReview() {
       setCursor((c) => Math.min(c, depthOf(next, fallback)));
     }
   };
-  // Recompute the mainline score graph (e.g. after changing model/visits).
+  // Recompute the score graph for the current line from scratch (on entering
+  // review, or after changing model/visits).
   const rerun = () => {
     trajRanRef.current = false;
-    analysisCacheRef.current.clear();
+    setAnalysisCache(new Map());
     setTrajFor(null);
     setAnalyzedScores({});
     setRerunToken((t) => t + 1);
@@ -443,9 +670,16 @@ export function GameReview() {
   // a preview chip drills into that line. Step navigation (arrows/buttons)
   // exits a variation once it crosses back over the branch point; the graph
   // and scrub bar seek within the current line.
-  const goGame = (depth: number) => { setLine(tree.mainlineLeafId); setCursor(depth); };
-  const goVar = (depth: number) => setCursor(depth);
-  const enterAt = (leafId: number, depth: number) => { setLine(leafId); setCursor(depth); };
+  const goGame = (depth: number) => { setReplyAt(null); setLine(tree.mainlineLeafId); setCursor(depth); };
+  const goVar = (depth: number) => { setReplyAt(null); setCursor(depth); };
+  const enterAt = (leafId: number, depth: number) => { setReplyAt(null); setLine(leafId); setCursor(depth); };
+
+  // What the score is allowed to reveal. Play mode honours the score setting:
+  // 'hide' shows nothing, 'alert' only once you've been warned, 'show' always.
+  const showScore = mode === 'review' ? true : play.scoreMode === 'show';
+  const showGraph = mode === 'review'
+    ? analyzeOn
+    : play.scoreMode === 'show' || (play.scoreMode === 'alert' && (alerting || alerted));
 
   const mark = cursor > 0 ? lineMoves[cursor - 1] : null;
   const annotations: Annotation[] = mark ? [{ kind: 'circle', x: mark.x, y: mark.y }] : [];
@@ -518,10 +752,10 @@ export function GameReview() {
   const when = new Date(game.createdAt).toLocaleDateString(undefined, {
     year: 'numeric', month: 'short', day: 'numeric',
   });
-  const cachedAnalysis = analyzeOn && sessionPosition
-    ? analysisCacheRef.current.get(sessionPosition.nodeKey) ?? null : null;
-  const currentAnalysis = analyzeOn ? (session.snapshot ?? cachedAnalysis) : null;
-  const running = analyzeOn && !currentAnalysis && !analysisErr;
+  const cachedAnalysis = analyzing && sessionPosition
+    ? analysisCache.get(sessionPosition.nodeKey) ?? null : null;
+  const currentAnalysis = analyzing ? (session.snapshot ?? cachedAnalysis) : null;
+  const running = analyzing && !currentAnalysis && !analysisErr;
   const playedNext = cursor < total ? lineMoves[cursor] : null;
   const aiCandidates = currentAnalysis
     ? [
@@ -559,14 +793,17 @@ export function GameReview() {
       <div className="gr-head">
         <Link to={backTo} className="gr-back">← Games</Link>
         <h1 className="gr-title">
-          {game.name && <span className="gr-game-name">{game.name}<span className="gr-vs"> — </span></span>}
-          {info.playerBlack || 'Black'}{info.rankBlack && <span className="gr-rank"> [{info.rankBlack}]</span>}
-          <span className="gr-vs"> vs. </span>
-          {info.playerWhite || 'White'}{info.rankWhite && <span className="gr-rank"> [{info.rankWhite}]</span>}
+          {fresh ? <>New game <span className="gr-vs">vs.</span> KataGo <span className="gr-rank">[{rankLabel(play.rank)}]</span></> : (
+            <>
+              {game.name && <span className="gr-game-name">{game.name}<span className="gr-vs"> — </span></span>}
+              {info.playerBlack || 'Black'}{info.rankBlack && <span className="gr-rank"> [{info.rankBlack}]</span>}
+              <span className="gr-vs"> vs. </span>
+              {info.playerWhite || 'White'}{info.rankWhite && <span className="gr-rank"> [{info.rankWhite}]</span>}
+            </>
+          )}
         </h1>
         <span className="gr-meta">
-          <span>{when}</span>
-          <span className="gr-dot">·</span>
+          {!fresh && <><span>{when}</span><span className="gr-dot">·</span></>}
           <span>{mainlineTotal} moves</span>
           {game.finalScore != null ? (
             <><span className="gr-dot">·</span><strong>{scoreLabel(game.finalScore)}</strong></>
@@ -579,14 +816,42 @@ export function GameReview() {
           )}
         </span>
         <div className="gr-head-spacer" />
-        <button
-          type="button"
-          className={analyzeOn ? 'gr-analyze-btn active' : 'gr-analyze-btn'}
-          onClick={() => setAnalyzeOn((o) => !o)}
-        >
-          {analyzeOn ? 'AI review: on' : 'AI review'}
-        </button>
-        {analyzeOn && (
+        <div className="gr-mode" role="group" aria-label="Mode">
+          {(['play', 'review'] as Mode[]).map((m) => (
+            <button key={m} type="button" className={mode === m ? 'active' : ''} onClick={() => enterMode(m)}>
+              {m === 'play' ? 'Play' : 'Review'}
+            </button>
+          ))}
+        </div>
+        {mode === 'play' && (
+          <>
+            <button
+              type="button"
+              className="gr-side"
+              onClick={() => { setMyColor(other(myColor)); setReplyAt(currentNode); }}
+              title="Play the other side from here — the opponent takes over the colour you leave"
+            >
+              You: <span className={`mv-color mv-${myColor}`} aria-hidden /> {myColor === 'B' ? 'Black' : 'White'}
+            </button>
+            <button type="button" className="gr-gear" onClick={openSettings} title="Opponent settings">⚙</button>
+          </>
+        )}
+        {fresh && mainlineTotal > 0 && (
+          <button type="button" className="gr-analyze-btn" onClick={saveFresh} disabled={saving || !user}>
+            {saving ? 'Saving…' : 'Save game'}
+          </button>
+        )}
+        {saveError && <span className="gr-analyze-err">{saveError}</span>}
+        {mode === 'review' && (
+          <button
+            type="button"
+            className={analyzeOn ? 'gr-analyze-btn active' : 'gr-analyze-btn'}
+            onClick={() => setAnalyzeOn((o) => !o)}
+          >
+            {analyzeOn ? 'AI review: on' : 'AI review'}
+          </button>
+        )}
+        {analyzing && (
           <button
             type="button"
             className={ponder ? 'gr-gear active' : 'gr-gear'}
@@ -597,7 +862,7 @@ export function GameReview() {
             {ponder ? '⏸' : '▶'}
           </button>
         )}
-        {analyzeOn && currentAnalysis && (
+        {analyzing && currentAnalysis && (
           <span className="gr-visits" title="Playouts behind the current analysis">
             {currentAnalysis.rootVisits.toLocaleString()}
           </span>
@@ -611,15 +876,42 @@ export function GameReview() {
             annotations={annotations}
             aiCandidates={aiCandidates}
             spinnerAt={null}
-            ghostStone={playedNext ? { x: playedNext.x, y: playedNext.y, color: playedNext.color } : null}
-            onPlay={(x, y) => playAt(x, y)}
+            ghostStone={mode === 'review' && playedNext
+              ? { x: playedNext.x, y: playedNext.y, color: playedNext.color } : null}
+            onPlay={boardPlay}
           />
         </div>
 
         <div className="gr-panel">
-          {analyzeOn ? (
+          {mode === 'play' && (
+            <div className="gr-play-bar">
+              {alerting && (
+                <div className="gr-play-alert">
+                  {play.alertKind === 'drop'
+                    ? <>You've lost {droppedBy!.toFixed(1)} points over the last {dropMoves} moves — step back and try another line.</>
+                    : <>You're behind by {behindBy!.toFixed(1)} points — step back and try another line.</>}
+                </div>
+              )}
+              {offline ? (
+                <span className="gr-play-status gr-analyze-err">
+                  {playEngine === 'local' ? 'KataGo backend offline — is `make api` running?' : OFFLINE_MSG}
+                  <button type="button" className="gr-rerun" onClick={() => { setOffline(false); setRetryToken((n) => n + 1); }}>↻</button>
+                </span>
+              ) : playLease === 'waiting' ? (
+                <span className="gr-play-status">KataGo AI is running in another tab or window — turn it off there to play here.</span>
+              ) : (
+                <span className="gr-play-status">
+                  {aiTurn ? 'KataGo is thinking…'
+                    : !atLeaf ? 'Earlier position — play a move to continue from here'
+                      : `Your move (${myColor === 'B' ? 'Black' : 'White'})`}
+                  {' · '}KataGo {rankLabel(play.rank)}
+                </span>
+              )}
+            </div>
+          )}
+          {showGraph ? (
             <div className="gr-graph-card">
-              <div className="gr-graph-head">
+              {mode === 'review' && <div className="gr-graph-head">
                 {trajRunning ? (
                   <span className="gr-rerun gr-rerun-busy"><Spinner label="Analyzing…" /></span>
                 ) : (
@@ -638,15 +930,17 @@ export function GameReview() {
                     <span>KataGo <strong>{scoreLabel(currentAnalysis.rootScoreLead)}</strong> · {currentAnalysis.rootVisits}v</span>
                   )}
                 </span>
-              </div>
+              </div>}
               {points.length > 1 ? (
                 <ReviewGraph points={points} total={total} cursor={cursor} onSeek={seek} />
               ) : (
                 <div className="gr-graph-empty">
-                  {running ? <Spinner label="Analyzing…" /> : 'The score timeline appears as KataGo analyzes the game.'}
+                  {running ? <Spinner label="Analyzing…" />
+                    : mode === 'play' ? 'The score line appears as the opponent replies.'
+                      : 'The score timeline appears as KataGo analyzes the game.'}
                 </div>
               )}
-              {analysisLine && <div className="gr-analysis">{analysisLine}</div>}
+              {mode === 'review' && analysisLine && <div className="gr-analysis">{analysisLine}</div>}
             </div>
           ) : (
             <div className="gr-scrub-bar">
@@ -664,7 +958,9 @@ export function GameReview() {
               <div className="gr-readout-move">
                 move {cursor} / {total}{!onMainline && <> · <span className="gr-status-var">variation</span></>}
               </div>
-              {cursorScore !== null && <div className="gr-readout-est">estimate <strong>{scoreLabel(cursorScore)}</strong></div>}
+              {cursorScore !== null && showScore && (
+                <div className="gr-readout-est">estimate <strong>{scoreLabel(cursorScore)}</strong></div>
+              )}
             </div>
           </div>
 

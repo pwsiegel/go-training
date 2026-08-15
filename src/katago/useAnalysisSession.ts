@@ -29,6 +29,10 @@ export type SessionPosition = {
   toPlay: Color;
   region?: AnalyzeArgs['region'];
   evalNext?: AnalyzeArgs['evalNext'];
+  // Opaque to this hook: echoed back with every snapshot so the caller can
+  // attribute a streamed result to whatever it was analyzing.
+  nodeId?: number;
+  nodeKey?: string;
 };
 
 /** A search target rather than a budget: sessions run until they reach it, and
@@ -42,6 +46,9 @@ export function useAnalysisSession(args: {
   targetVisits: number;
   batchSize?: number;
   debounceMs?: number;   // absorb rapid navigation (default 250ms)
+  // Called as each snapshot arrives, with the position it was computed for.
+  // Lets a caller record results where they land instead of in an effect.
+  onSnapshot?: (analysis: WebAnalysis, position: SessionPosition) => void;
 }): { snapshot: WebAnalysis | null; error: string; running: boolean } {
   const { enabled, model, position, targetVisits, batchSize } = args;
   const [snap, setSnap] = useState<{ forId: string; data: WebAnalysis } | null>(null);
@@ -49,6 +56,9 @@ export function useAnalysisSession(args: {
   const [inFlight, setInFlight] = useState(false);
   // One-time played-move eval per position (streamed snapshots carry it once known).
   const playedEvalRef = useRef<{ forId: string; value: WebAnalysis['playedEval'] } | null>(null);
+  // Latest callback, so a running search always reports to the current render.
+  const onSnapshotRef = useRef(args.onSnapshot);
+  useEffect(() => { onSnapshotRef.current = args.onSnapshot; });
 
   const regionKey = position?.region
     ? `${position.region.colMin},${position.region.colMax},${position.region.rowMin},${position.region.rowMax}`
@@ -67,6 +77,11 @@ export function useAnalysisSession(args: {
       const cached = playedEvalRef.current;
       if (cached && cached.forId === pos.positionId) return { ...a, playedEval: cached.value };
       return a;
+    };
+
+    const emit = (data: WebAnalysis) => {
+      setSnap({ forId: pos.positionId, data });
+      onSnapshotRef.current?.(data, pos);
     };
 
     const ctrl = new AbortController();
@@ -89,7 +104,7 @@ export function useAnalysisSession(args: {
           onReport: (report) => {
             if (!active || !report.root) return;
             const mapped = mapBackend(report, pos.toPlay);
-            setSnap({ forId: pos.positionId, data: withPlayedEval(mapped) });
+            emit(withPlayedEval(mapped));
             const nm = pos.evalNext?.move;
             if (!nm || probing) return;
             if (playedEvalRef.current?.forId === pos.positionId) return;
@@ -108,7 +123,7 @@ export function useAnalysisSession(args: {
             }, mapped).then((value) => {
               if (!active || !value) return;
               playedEvalRef.current = { forId: pos.positionId, value };
-              setSnap({ forId: pos.positionId, data: withPlayedEval(mapped) });
+              emit(withPlayedEval(mapped));
             });
           },
         })
@@ -137,7 +152,7 @@ export function useAnalysisSession(args: {
         batchSize,
         evalNext: pos.evalNext,
         onProgress: (p) => {
-          if (active) setSnap({ forId: pos.positionId, data: withPlayedEval(p) });
+          if (active) emit(withPlayedEval(p));
         },
       })
         .then((res) => {
@@ -147,7 +162,7 @@ export function useAnalysisSession(args: {
           if (res.playedEval !== undefined && pos.evalNext) {
             playedEvalRef.current = { forId: pos.positionId, value: res.playedEval };
           }
-          setSnap({ forId: pos.positionId, data: withPlayedEval(res) });
+          emit(withPlayedEval(res));
         })
         .catch((e) => {
           if (!active) return;

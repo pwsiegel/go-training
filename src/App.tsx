@@ -17,7 +17,6 @@ import { Submissions } from './views/Submissions';
 import { SubmissionDetail } from './views/SubmissionDetail';
 import { History } from './views/History';
 import { ProfileModal } from './views/Profile';
-import { Play } from './views/Play';
 import { Review } from './views/Review';
 import { GameReview } from './views/GameReview';
 import { ProGames } from './views/ProGames';
@@ -125,9 +124,9 @@ export default function App() {
             <Route path="/submissions" element={<Submissions teacherMode={teacherMode} />} />
             <Route path="/submissions/:id" element={<SubmissionDetail />} />
             <Route path="/history" element={<History teacherMode={teacherMode} />} />
-            <Route path="/play" element={<Play />} />
+            <Route path="/play" element={<GameReview key="play" fresh />} />
             <Route path="/review" element={<Review teacherMode={teacherMode} />} />
-            <Route path="/review/:id" element={<GameReview />} />
+            <Route path="/review/:id" element={<GameReview key="review" />} />
             <Route path="/pro-games" element={<ProGames />} />
             <Route path="/teacher" element={<Navigate to="/submissions" replace />} />
             <Route path="/teacher/submissions" element={<Navigate to="/submissions" replace />} />

@@ -17,15 +17,30 @@ import { katagoBackendAvailable } from '../data/katago';
 import {
   getModelStatus, subscribeModelStatus, type KataGoModelStatus,
 } from './engine/katago/client';
-import { setEnginePrefs } from '../data/profile';
+import { setEnginePrefs, setPlayDefaults } from '../data/profile';
+import type { PlayDefaults } from '../data/model';
 import { useAuth } from '../auth';
 import { useEngineLease, useBrowserEngineHeldElsewhere, type LeaseStatus } from './engineLease';
 import { Modal } from '../Modal';
-import { EngineSettings } from '../EngineSettings';
+import { AnalysisSettings, PlaySettings } from '../EngineSettings';
 import './engineHub.css';
 
 const DEFAULT_MODEL_ID = BROWSER_MODELS[0].id;   // b18
 const isBrowserModel = (id?: string) => !!id && BROWSER_MODELS.some((m) => m.id === id);
+
+/** Opponent settings for human-like play. Mirrors the persisted `playDefaults`,
+ * which is written back (debounced) whenever any of them changes. */
+const DEFAULT_PLAY: PlayDefaults = {
+  rank: 'rank_9k',
+  temperature: 1.0,
+  moveDelay: 1,
+  engine: 'browser',
+  scoreMode: 'show',
+  alertKind: 'behind',
+  alertThreshold: 5,
+  dropPoints: 5,
+  dropMoves: 10,
+};
 
 export type EngineHealth = 'warming' | 'ready' | 'down' | 'blocked';
 
@@ -43,11 +58,14 @@ type Hub = {
   health: EngineHealth;
   leaseStatus: LeaseStatus;
   engineReady: boolean;            // safe to issue analysis calls now
+  play: PlayDefaults;              // human-like opponent settings, live
+  setPlay: (patch: Partial<PlayDefaults>) => void;
   openSettings: () => void;
 };
 
 const HubContext = createContext<Hub | null>(null);
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useEngineHub(): Hub {
   const hub = useContext(HubContext);
   if (!hub) throw new Error('useEngineHub outside EngineHubProvider');
@@ -66,6 +84,9 @@ export function EngineHubProvider({ children }: { children: ReactNode }) {
   const [batchOverride, setBatchOverride] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [warmState, setWarmState] = useState<'pending' | 'ok' | 'failed'>('pending');
+  const [playRaw, setPlayRaw] = useState<PlayDefaults>(DEFAULT_PLAY);
+  const seededPlay = useRef(false);
+  const playSaveTimer = useRef<number | null>(null);
 
   const localOk = localAvailable === true;
   const models = useMemo(
@@ -92,6 +113,34 @@ export function EngineHubProvider({ children }: { children: ReactNode }) {
     if (desired !== 'local' && webgpuOk === false) desired = FALLBACK_MODEL_ID;
     setModelId(desired);
   }, [localAvailable, localOk, webgpuOk, profile]);
+
+  // Seed the opponent settings from the saved profile once, then local state is
+  // authoritative (and is written back on every change).
+  useEffect(() => {
+    if (seededPlay.current || !profile?.playDefaults) return;
+    seededPlay.current = true;
+    setPlayRaw({ ...DEFAULT_PLAY, ...profile.playDefaults });
+  }, [profile]);
+
+  // 'local' can only apply once the native backend has answered; the saved
+  // preference is kept either way, so it takes effect when the backend appears.
+  const play = useMemo<PlayDefaults>(
+    () => (playRaw.engine === 'local' && !localOk ? { ...playRaw, engine: 'browser' } : playRaw),
+    [playRaw, localOk],
+  );
+
+  const setPlay = (patch: Partial<PlayDefaults>) => {
+    setPlayRaw((prev) => {
+      const next = { ...prev, ...patch };
+      if (user) {
+        if (playSaveTimer.current != null) clearTimeout(playSaveTimer.current);
+        playSaveTimer.current = window.setTimeout(() => {
+          void setPlayDefaults(user.uid, next).catch(() => {});   // best-effort
+        }, 800);
+      }
+      return next;
+    });
+  };
 
   const pickModel = (id: string) => {
     userPicked.current = true;
@@ -163,6 +212,8 @@ export function EngineHubProvider({ children }: { children: ReactNode }) {
     health,
     leaseStatus,
     engineReady,
+    play,
+    setPlay,
     openSettings: () => setSettingsOpen(true),
   };
 
@@ -176,7 +227,7 @@ export function EngineHubProvider({ children }: { children: ReactNode }) {
             <span className="eh-status-note"> · browser engine in use by another tab</span>
           )}
         </p>
-        <EngineSettings
+        <AnalysisSettings
           models={models}
           modelId={model.id}
           onModelId={pickModel}
@@ -185,6 +236,7 @@ export function EngineHubProvider({ children }: { children: ReactNode }) {
           batchOverride={batchOverride}
           onBatchOverride={setBatchOverride}
         />
+        <PlaySettings play={play} onChange={setPlay} localAvailable={localOk} />
       </Modal>
     </HubContext.Provider>
   );

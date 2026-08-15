@@ -72,6 +72,55 @@
 }
 .gr-analyze-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
+/* Play / Review switch — the mode the whole surface is in. */
+.gr-mode { display: flex; }
+.gr-mode button {
+  padding: 0.3rem 0.75rem;
+  font: inherit;
+  font-size: 0.82rem;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.gr-mode button:not(:first-child) { border-left: none; }
+.gr-mode button:first-child { border-radius: 7px 0 0 7px; }
+.gr-mode button:last-child { border-radius: 0 7px 7px 0; }
+.gr-mode button:hover { color: var(--text); }
+.gr-mode button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.gr-side {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.7rem;
+  font: inherit;
+  font-size: 0.82rem;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.gr-side:hover { color: var(--text); border-color: var(--text-muted); }
+
+/* Play-mode status strip above the graph: whose move, alerts, engine trouble. */
+.gr-play-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+}
+.gr-play-status { color: var(--text-muted); }
+.gr-play-alert {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--warning-line);
+  border-radius: 8px;
+  background: var(--warning-bg);
+  color: var(--warning-strong);
+}
+
 .gr-gear {
   width: 2rem;
   height: 2rem;

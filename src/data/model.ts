@@ -46,10 +46,10 @@ export type EnginePrefs = {
   browserModelId?: string;  // preferred model when it isn't (browser-only)
 };
 
-/** Last-used settings for the play-vs-KataGo setup screen, seeded as the
- * defaults for the user's next game. */
+/** The human-like opponent's settings, kept in the AI settings modal and
+ * written back as they change. Your side isn't here: it's a live toggle on the
+ * board, switchable mid-game. */
 export type PlayDefaults = {
-  colorChoice: Color | 'random';
   rank: string;
   temperature: number;
   moveDelay: number;

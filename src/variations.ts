@@ -1,8 +1,9 @@
-// Session-scoped variation tree for game review. The mainline (from the SGF) is
-// the initial spine; clicking a move on the board branches a variation off the
-// current position. Everything here is pure — the tree lives in React state and
-// is never written to Firestore. The visualization consumes `variationLines`;
-// navigation consumes `movesTo` / `nodeAtDepth`.
+// Variation tree for the game board. The mainline (from the SGF) is the initial
+// spine; playing a move off it — by hand or as the opponent's reply — branches a
+// variation. Everything here is pure: the tree lives in React state, and its
+// off-mainline nodes are what gets persisted (see the persistence section).
+// The visualization consumes `variationLines`; navigation consumes `movesTo` /
+// `nodeAtDepth`.
 
 import type { GameMove, SavedNode } from './data/model';
 
@@ -102,6 +103,25 @@ export function addMove(
         [childId]: { id: childId, parent: nodeId, move, children: [], mainline: false },
         [nodeId]: { ...tree.nodes[nodeId], children: [...tree.nodes[nodeId].children, childId] },
       },
+    },
+    childId,
+  };
+}
+
+/** Extend the mainline itself — a game being played from an empty board, where
+ * the first line played *is* the game. Only meaningful at the mainline leaf;
+ * everywhere else (and in any game with a source SGF) moves branch instead. */
+export function extendMainline(
+  tree: GameTree, move: GameMove,
+): { tree: GameTree; childId: number } {
+  const existing = childByMove(tree, tree.mainlineLeafId, move.x, move.y);
+  if (existing !== null) return { tree, childId: existing };
+  const { tree: grown, childId } = addMove(tree, tree.mainlineLeafId, move);
+  return {
+    tree: {
+      ...grown,
+      mainlineLeafId: childId,
+      nodes: { ...grown.nodes, [childId]: { ...grown.nodes[childId], mainline: true } },
     },
     childId,
   };
