@@ -3,9 +3,14 @@ import { computeNumberedOverlay } from './numberedMoves';
 import { boundingViewport } from './stones';
 import type { Stone } from './types';
 import type { Verdict } from './data/model';
+import type { RetryMark } from './data/study';
 import './ProblemCard.css';
 
 const MARK: Record<string, string> = { correct: '✓', incorrect: '✗', flag: '⚑', pending: '?' };
+const RETRY_LABEL: Record<RetryMark, string> = {
+  drafted: '↻ in submission',
+  resubmitted: '↻ resubmitted',
+};
 
 type Viewport = { colMin: number; colMax: number; rowMin: number; rowMax: number };
 
@@ -37,8 +42,8 @@ export type ProblemCardProps = {
   number?: number;
   /** Verdict — drives the colored border and the verdict bar. */
   verdict?: Verdict | 'pending' | null;
-  /** Show the "↻ retried" marker. */
-  retried?: boolean;
+  /** How the problem has been redone since this attempt, if at all. */
+  retry?: RetryMark | null;
   /** Show the "⚑ stuck" marker (problem is in the student's stuck set). */
   stuck?: boolean;
   /** Render the verdict bar. Off where interactive controls replace it (grading). */
@@ -51,7 +56,7 @@ export type ProblemCardProps = {
  * attempts, review. Pure display; interactions (links, remove ×, grading
  * buttons) are composed externally, and the size is set by the parent grid. */
 export function ProblemCard({
-  stones, moves, collection, number, verdict, retried, stuck, bar = true, className,
+  stones, moves, collection, number, verdict, retry, stuck, bar = true, className,
 }: ProblemCardProps) {
   // Stuckness overrides every verdict look except correct: a parked problem
   // reads as parked, not as one more wrong answer nagging in red.
@@ -66,10 +71,10 @@ export function ProblemCard({
       <div className="problem-card-board">
         <Board stones={stones} numberedMoves={overlay?.boardNumbers} viewport={viewport} displayOnly />
       </div>
-      {(number !== undefined || retried || stuck) && (
+      {(number !== undefined || retry || stuck) && (
         <div className="problem-card-footer">
           {number !== undefined && <span className="problem-card-num">#{number}</span>}
-          {retried && <span className="problem-card-retried">↻ retried</span>}
+          {retry && <span className="problem-card-retry">{RETRY_LABEL[retry]}</span>}
           {stuck && verdict === 'correct' && <span className="problem-card-stuck">? stuck</span>}
         </div>
       )}

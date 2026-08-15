@@ -5,7 +5,10 @@ import { Spinner } from '../Spinner';
 import { ProblemCard } from '../ProblemCard';
 import { FilterChips } from '../FilterChips';
 import { toStones } from '../stones';
-import { loadStudentData, loadTeacherReview, type SubmissionItem, type SubmissionView } from '../data/study';
+import {
+  loadStudentData, loadTeacherReview, retryMark,
+  type RetryMark, type SubmissionItem, type SubmissionView,
+} from '../data/study';
 import { listStudents, listTeachers } from '../data/links';
 import { getStuckSet } from '../data/stuck';
 import { problemIndex, type ProblemIndex } from '../data/library';
@@ -23,7 +26,7 @@ export function History({ teacherMode = false }: { teacherMode?: boolean }) {
   const uid = user!.uid;
   const location = useLocation();
   const [subs, setSubs] = useState<SubmissionView[] | null>(null);
-  const [latestAttemptAt, setLatestAttemptAt] = useState<Map<string, number>>(new Map());
+  const [latestAttempt, setLatestAttempt] = useState<Map<string, AttemptDoc>>(new Map());
   const [index, setIndex] = useState<ProblemIndex | null>(null);
   const [people, setPeople] = useState<UserDoc[]>([]); // teachers (player) or students (teacher)
   const [stuckSet, setStuckSet] = useState<Set<string>>(new Set());
@@ -43,7 +46,7 @@ export function History({ teacherMode = false }: { teacherMode?: boolean }) {
         setSubs(all);
       });
     } else {
-      loadStudentData(uid).then((d) => { setSubs(d.submissions); setLatestAttemptAt(d.latestAttemptAt); });
+      loadStudentData(uid).then((d) => { setSubs(d.submissions); setLatestAttempt(d.latestAttempt); });
       listTeachers(uid).then(setPeople);
       getStuckSet(uid).then(setStuckSet).catch(() => {});
     }
@@ -60,7 +63,7 @@ export function History({ teacherMode = false }: { teacherMode?: boolean }) {
       const slug = index?.slugByCollection.get(index?.byId.get(it.attempt.problemId)?.collection ?? it.attempt.collection);
       return slug ? { slug, id: it.attempt.problemId } : null;
     }).filter((n): n is { slug: string; id: string } => n !== null);
-  const isRetried = (it: SubmissionItem) => (latestAttemptAt.get(it.attempt.problemId) ?? 0) > it.attempt.createdAt;
+  const retryOf = (it: SubmissionItem) => retryMark(it.attempt, latestAttempt);
 
   const reviewedSubs = useMemo(
     () => (subs ?? [])
@@ -81,9 +84,9 @@ export function History({ teacherMode = false }: { teacherMode?: boolean }) {
     // Stuck problems are deliberately parked — they don't nag from the queue.
     return [...latest.values()].filter((it) =>
       it.verdict!.verdict !== 'correct'
-      && (latestAttemptAt.get(it.attempt.problemId) ?? 0) <= it.attempt.createdAt
+      && !retryMark(it.attempt, latestAttempt)
       && !stuckSet.has(it.attempt.problemId));
-  }, [subs, teacherMode, latestAttemptAt, stuckSet]);
+  }, [subs, teacherMode, latestAttempt, stuckSet]);
 
   const toggle = (key: string) =>
     setSelected((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
@@ -134,7 +137,7 @@ export function History({ teacherMode = false }: { teacherMode?: boolean }) {
                     <ul className="problem-card-grid">
                       {items.map((it) => (
                         <ReviewTile key={it.attempt.id} item={it} index={index} nav={nav}
-                          retried={isRetried(it)} stuck={stuckSet.has(it.attempt.problemId)} href={solveHref(it.attempt)} />
+                          retry={retryOf(it)} stuck={stuckSet.has(it.attempt.problemId)} href={solveHref(it.attempt)} />
                       ))}
                     </ul>
                   );
@@ -157,7 +160,7 @@ export function History({ teacherMode = false }: { teacherMode?: boolean }) {
                         <ul className="problem-card-grid">
                           {items.map((it) => (
                             <ReviewTile key={it.attempt.id} item={it} index={index} nav={nav}
-                              retried={isRetried(it)} stuck={stuckSet.has(it.attempt.problemId)} href={solveHref(it.attempt)} />
+                              retry={retryOf(it)} stuck={stuckSet.has(it.attempt.problemId)} href={solveHref(it.attempt)} />
                           ))}
                         </ul>
                       </section>
@@ -179,10 +182,10 @@ export function History({ teacherMode = false }: { teacherMode?: boolean }) {
 }
 
 function ReviewTile({
-  item, index, retried, stuck = false, href, nav,
+  item, index, retry, stuck = false, href, nav,
 }: {
   item: SubmissionItem; index: ProblemIndex | null;
-  retried: boolean; stuck?: boolean; href: string | null; nav: { slug: string; id: string }[];
+  retry: RetryMark | null; stuck?: boolean; href: string | null; nav: { slug: string; id: string }[];
 }) {
   const location = useLocation();
   const problem = index?.byId.get(item.attempt.problemId) ?? null;
@@ -194,7 +197,7 @@ function ReviewTile({
       collection={problem?.collection ?? item.attempt.collection}
       number={problem ? problem.source_board_idx + 1 : undefined}
       verdict={v.verdict}
-      retried={retried && v.verdict !== 'correct'}
+      retry={v.verdict === 'correct' ? null : retry}
       stuck={stuck}
     />
   );

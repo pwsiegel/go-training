@@ -59,13 +59,32 @@ export async function attemptsForProblem(
   return (await getDocs(q)).docs.map((d) => d.data() as AttemptDoc);
 }
 
-function latestPerProblem(attempts: AttemptDoc[]): AttemptDoc[] {
+/** Newest attempt per problem. Accepts attempts from several sources (e.g. a
+ * fetched snapshot merged with the live draft batch); newest wins. */
+export function latestByProblem(attempts: AttemptDoc[]): Map<string, AttemptDoc> {
   const byPid = new Map<string, AttemptDoc>();
   for (const a of attempts) {
     const prev = byPid.get(a.problemId);
     if (!prev || a.createdAt > prev.createdAt) byPid.set(a.problemId, a);
   }
-  return [...byPid.values()].sort((a, b) => a.createdAt - b.createdAt);
+  return byPid;
+}
+
+function latestPerProblem(attempts: AttemptDoc[]): AttemptDoc[] {
+  return [...latestByProblem(attempts).values()].sort((a, b) => a.createdAt - b.createdAt);
+}
+
+/** How a problem has been redone since the attempt on screen: 'drafted' — the
+ * newer attempt is sitting in the draft batch; 'resubmitted' — it has already
+ * been sent in a later submission. */
+export type RetryMark = 'drafted' | 'resubmitted';
+
+export function retryMark(
+  attempt: AttemptDoc, latest: Map<string, AttemptDoc>,
+): RetryMark | null {
+  const newer = latest.get(attempt.problemId);
+  if (!newer || newer.createdAt <= attempt.createdAt) return null;
+  return newer.submissionId === null ? 'drafted' : 'resubmitted';
 }
 
 // ---------- batch (unsent attempts) ----------
@@ -157,6 +176,12 @@ export type SubmissionView = {
   items: SubmissionItem[];
 };
 
+/** One submission plus the student's newest attempt per problem, so each card
+ * can show whether it has been redone since (see `retryMark`). */
+export type SubmissionDetailView = SubmissionView & {
+  latestAttempt: Map<string, AttemptDoc>;
+};
+
 function submissionState(sub: SubmissionDoc, items: SubmissionItem[]): SubmissionState {
   if (!items.every((it) => it.verdict)) return 'pending';
   return sub.acked ? 'acked' : 'returned';
@@ -172,14 +197,14 @@ function buildView(
   return { submission, state: submissionState(submission, items), items };
 }
 
-export async function getSubmission(submissionId: string): Promise<SubmissionView | null> {
+export async function getSubmission(submissionId: string): Promise<SubmissionDetailView | null> {
   const snap = await getDoc(doc(db, 'submissions', submissionId));
   if (!snap.exists()) return null;
   const submission = snap.data() as SubmissionDoc;
   // Filter attempts by studentUid (rules-safe) then by submission in memory.
   const attempts = await allAttempts(submission.studentUid);
   const verdicts = await verdictsByAttempt(submission.studentUid);
-  return buildView(submission, attempts, verdicts);
+  return { ...buildView(submission, attempts, verdicts), latestAttempt: latestByProblem(attempts) };
 }
 
 export async function listSubmissions(studentUid: string): Promise<SubmissionDoc[]> {
@@ -265,9 +290,9 @@ export async function resumePoints(studentUid: string): Promise<ResumePoint[]> {
 export type StudentData = {
   batch: AttemptDoc[];
   submissions: SubmissionView[];
-  /** Latest attempt timestamp per problem (across drafts + sent) — lets the
-   * history view tell whether a non-correct problem has since been retried. */
-  latestAttemptAt: Map<string, number>;
+  /** Newest attempt per problem (across drafts + sent) — lets the history view
+   * tell whether a non-correct problem has since been retried. */
+  latestAttempt: Map<string, AttemptDoc>;
 };
 
 /** Everything the student dashboard needs in three rules-safe queries:
@@ -281,11 +306,7 @@ export async function loadStudentData(studentUid: string): Promise<StudentData> 
   ]);
   const batch = latestPerProblem(attempts.filter((a) => a.submissionId === null));
   const submissions = subs.map((s) => buildView(s, attempts, verdicts));
-  const latestAttemptAt = new Map<string, number>();
-  for (const a of attempts) {
-    latestAttemptAt.set(a.problemId, Math.max(latestAttemptAt.get(a.problemId) ?? 0, a.createdAt));
-  }
-  return { batch, submissions, latestAttemptAt };
+  return { batch, submissions, latestAttempt: latestByProblem(attempts) };
 }
 
 export async function ackSubmission(submissionId: string): Promise<void> {

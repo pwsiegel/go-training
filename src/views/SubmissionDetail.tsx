@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { useAuth } from '../auth';
+import { useBatch } from '../batch';
 import { Spinner } from '../Spinner';
 import { ProblemCard } from '../ProblemCard';
 import { toStones } from '../stones';
-import { getSubmission, ackSubmission, type SubmissionView } from '../data/study';
+import {
+  getSubmission, ackSubmission, latestByProblem, retryMark, type SubmissionDetailView,
+} from '../data/study';
 import { getStuckSet } from '../data/stuck';
 import { findProblem, listCollections } from '../data/library';
-import type { LibProblem } from '../data/model';
+import type { AttemptDoc, LibProblem } from '../data/model';
 import '../Collection.css';
 import '../Submissions.css';
 const STATE_LABEL: Record<string, string> = { pending: 'Pending review', returned: 'Ready to view', acked: 'Read' };
@@ -16,7 +19,8 @@ export function SubmissionDetail() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const location = useLocation();
-  const [view, setView] = useState<SubmissionView | null>(null);
+  const { batch } = useBatch();
+  const [view, setView] = useState<SubmissionDetailView | null>(null);
   const [problems, setProblems] = useState<Record<string, LibProblem | null>>({});
   const [stuckSet, setStuckSet] = useState<Set<string>>(new Set());
   const [slugByCollection, setSlugByCollection] = useState<Record<string, string>>({});
@@ -46,6 +50,14 @@ export function SubmissionDetail() {
   useEffect(() => {
     if (view) getStuckSet(view.submission.studentUid).then(setStuckSet).catch(() => {});
   }, [view]);
+
+  // Redone-since markers are the student's own progress cue, so they are off in
+  // a teacher's view. The live draft batch is merged in on top of the fetched
+  // snapshot: a redo added from the solve modal marks its card straight away.
+  const latestAttempt = useMemo(() => {
+    if (!view || view.submission.studentUid !== user?.uid) return new Map<string, AttemptDoc>();
+    return latestByProblem([...view.latestAttempt.values(), ...batch]);
+  }, [view, batch, user]);
 
   if (view === null) return <div className="picker"><Spinner /></div>;
 
@@ -87,6 +99,7 @@ export function SubmissionDetail() {
               collection={problem?.collection}
               number={problem ? problem.source_board_idx + 1 : undefined}
               verdict={verdict?.verdict ?? null}
+              retry={retryMark(attempt, latestAttempt)}
               stuck={stuckSet.has(attempt.problemId)}
             />
           );
